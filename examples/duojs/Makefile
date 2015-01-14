@@ -3,3 +3,6 @@ default: node_modules
 
 node_modules:
 	npm install
+
+clean:
+	rm -rf components js css

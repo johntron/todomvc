@@ -27,13 +27,13 @@ function build_with_duo() {
 gulp.task('scripts', function () {
     gulp.src(paths.scripts)
         .pipe(build_with_duo())
-        .pipe(gulp.dest('static/'));
+        .pipe(gulp.dest('js/'));
 });
 
 gulp.task('styles', function () {
 	gulp.src(paths.styles)
 		.pipe(less())
-		.pipe(gulp.dest('static/'));
+		.pipe(gulp.dest('css/'));
 });
 
 gulp.task('default', ['scripts', 'styles']);
