@@ -27,9 +27,11 @@ View.prototype.render = function() {
 };
 
 View.prototype.bind = function() {
-    var $new_todo = this.$el.querySelector('#new-todo');
+    var $new_todo = this.$el.querySelector('#new-todo'),
+		$mark_all = this.$el.querySelector('#toggle-all');
 
     event.bind($new_todo, 'keyup', this.add_handler.bind(this));
+	event.bind($mark_all, 'change', this.toggle_all.bind(this));
 };
 
 View.prototype.add_view = function (model) {
@@ -77,6 +79,14 @@ View.prototype.add_handler = function(e) {
     this.model.add(todo);
 	this.add_view(todo);
 	$input.value = '';
+};
+
+View.prototype.toggle_all = function () {
+	var completed = this.$el.querySelector('#toggle-all').checked;
+
+	this.model.each(function (todo) {
+		todo.completed(completed);
+	});
 };
 
 View.prototype.show_chrome = function () {

@@ -12,7 +12,8 @@ function View (model) {
 emitter(View.prototype);
 
 View.prototype.render = function () {
-	var $title = this.$el.querySelector('label');
+	var $title = this.$el.querySelector('label'),
+		$toggle = this.$el.querySelector('.toggle');
 
 	if (this.model.completed()) {
 		classes(this.$el).add('completed');
@@ -20,6 +21,8 @@ View.prototype.render = function () {
 		classes(this.$el).remove('completed');
 	}
 
+	$toggle.checked = this.model.completed();
+	
 	$title.textContent = this.model.title();
 
 	return this.$el;
@@ -28,6 +31,8 @@ View.prototype.render = function () {
 View.prototype.bind = function () {
 	delegate.bind(this.$el, '.toggle', 'change', this.toggle_completed.bind(this));
 	delegate.bind(this.$el, '.destroy', 'click', this.destroy.bind(this));
+
+	this.model.on('change completed', this.render.bind(this));
 };
 
 View.prototype.toggle_completed = function () {

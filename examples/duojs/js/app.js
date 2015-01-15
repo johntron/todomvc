@@ -871,9 +871,11 @@ View.prototype.render = function() {
 };
 
 View.prototype.bind = function() {
-    var $new_todo = this.$el.querySelector('#new-todo');
+    var $new_todo = this.$el.querySelector('#new-todo'),
+		$mark_all = this.$el.querySelector('#toggle-all');
 
     event.bind($new_todo, 'keyup', this.add_handler.bind(this));
+	event.bind($mark_all, 'change', this.toggle_all.bind(this));
 };
 
 View.prototype.add_view = function (model) {
@@ -921,6 +923,14 @@ View.prototype.add_handler = function(e) {
     this.model.add(todo);
 	this.add_view(todo);
 	$input.value = '';
+};
+
+View.prototype.toggle_all = function () {
+	var completed = this.$el.querySelector('#toggle-all').checked;
+
+	this.model.each(function (todo) {
+		todo.completed(completed);
+	});
 };
 
 View.prototype.show_chrome = function () {
@@ -1308,7 +1318,8 @@ function View (model) {
 emitter(View.prototype);
 
 View.prototype.render = function () {
-	var $title = this.$el.querySelector('label');
+	var $title = this.$el.querySelector('label'),
+		$toggle = this.$el.querySelector('.toggle');
 
 	if (this.model.completed()) {
 		classes(this.$el).add('completed');
@@ -1316,6 +1327,8 @@ View.prototype.render = function () {
 		classes(this.$el).remove('completed');
 	}
 
+	$toggle.checked = this.model.completed();
+	
 	$title.textContent = this.model.title();
 
 	return this.$el;
@@ -1324,6 +1337,8 @@ View.prototype.render = function () {
 View.prototype.bind = function () {
 	delegate.bind(this.$el, '.toggle', 'change', this.toggle_completed.bind(this));
 	delegate.bind(this.$el, '.destroy', 'click', this.destroy.bind(this));
+
+	this.model.on('change completed', this.render.bind(this));
 };
 
 View.prototype.toggle_completed = function () {
