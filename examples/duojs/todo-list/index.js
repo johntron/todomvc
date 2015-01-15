@@ -2,7 +2,8 @@ var domify = require('component/domify'),
     $template = domify(require('./template.html')),
     classes = require('component/classes'),
     event = require('component/event'),
-	Todo = require('/todo'); // From build root (example/duojs)
+	Todo = require('/todo'), // From build root (example/duojs)
+	ENTER_KEY = 13;
 
 function View(model) {
     this.model = model;
@@ -38,22 +39,33 @@ View.prototype.bind = function() {
 
 View.prototype.add_view = function (model) {
 	var view = new Todo.View(model),
+		$main = this.$el.querySelector('#main'),
 		$list = this.$el.querySelector('#todo-list');
 
 	view.render();
 	$list.appendChild(view.$el);
+
+	// If we just added a todo, the list cannot be empty
+	classes($main).remove('hidden');
 };
 
-View.prototype.add_handler = function() {
-    var data = {
-            title: this.$el.querySelector('#new-todo').value,
-            order: this.model.max('order'),
+View.prototype.add_handler = function(e) {
+	if (e.keyCode !== ENTER_KEY) {
+		return; // Short-circuit
+	}
+
+    var title = this.$el.querySelector('#new-todo').value.trim(),
+		data = {
+            title: title,
+            order: Math.max(this.model.max('order'), 1),
             completed: false
         },
-        todo = new Todo.Model(data);
+        todo = new Todo.Model(data),
+		$input = this.$el.querySelector('#new-todo');
 
     this.model.add(todo);
-	this.add(todo);
+	this.add_view(todo);
+	$input.value = '';
 };
 
 module.exports = {

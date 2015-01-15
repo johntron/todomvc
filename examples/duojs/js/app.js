@@ -846,7 +846,8 @@ var domify = require('component/domify'),
     $template = domify(require('./template.html')),
     classes = require('component/classes'),
     event = require('component/event'),
-	Todo = require('/todo'); // From build root (example/duojs)
+	Todo = require('/todo'), // From build root (example/duojs)
+	ENTER_KEY = 13;
 
 function View(model) {
     this.model = model;
@@ -882,22 +883,33 @@ View.prototype.bind = function() {
 
 View.prototype.add_view = function (model) {
 	var view = new Todo.View(model),
+		$main = this.$el.querySelector('#main'),
 		$list = this.$el.querySelector('#todo-list');
 
 	view.render();
 	$list.appendChild(view.$el);
+
+	// If we just added a todo, the list cannot be empty
+	classes($main).remove('hidden');
 };
 
-View.prototype.add_handler = function() {
-    var data = {
-            title: this.$el.querySelector('#new-todo').value,
-            order: this.model.max('order'),
+View.prototype.add_handler = function(e) {
+	if (e.keyCode !== ENTER_KEY) {
+		return; // Short-circuit
+	}
+
+    var title = this.$el.querySelector('#new-todo').value.trim(),
+		data = {
+            title: title,
+            order: Math.max(this.model.max('order'), 1),
             completed: false
         },
-        todo = new Todo.Model(data);
+        todo = new Todo.Model(data),
+		$input = this.$el.querySelector('#new-todo');
 
     this.model.add(todo);
-	this.add(todo);
+	this.add_view(todo);
+	$input.value = '';
 };
 
 module.exports = {
@@ -1017,7 +1029,7 @@ function parse(html, doc) {
 
 }, {}],
 5: [function(require, module, exports) {
-module.exports = '<section id="todoapp">\n    <header id="header">\n        <h1>todos</h1>\n        <input id="new-todo" placeholder="What needs to be done?" autofocus>\n    </header>\n    <!-- This section should be hidden by default and shown when there are todos -->\n    <section id="main">\n        <input id="toggle-all" type="checkbox">\n        <label for="toggle-all">Mark all as complete</label>\n        <ul id="todo-list">\n            <!-- These are here just to show the structure of the list items -->\n            <!-- List items should get the class `editing` when editing and `completed` when marked as completed -->\n            <li class="completed">\n                <div class="view">\n                    <input class="toggle" type="checkbox" checked>\n                    <label>Create a TodoMVC template</label>\n                    <button class="destroy"></button>\n                </div>\n                <input class="edit" value="Create a TodoMVC template">\n            </li>\n            <li>\n                <div class="view">\n                    <input class="toggle" type="checkbox">\n                    <label>Rule the web</label>\n                    <button class="destroy"></button>\n                </div>\n                <input class="edit" value="Rule the web">\n            </li>\n        </ul>\n    </section>\n    <!-- This footer should hidden by default and shown when there are todos -->\n    <footer id="footer">\n        <!-- This should be `0 items left` by default -->\n        <span id="todo-count"><strong>1</strong> item left</span>\n        <!-- Remove this if you don\'t implement routing -->\n        <ul id="filters">\n            <li>\n                <a class="selected" href="#/">All</a>\n            </li>\n            <li>\n                <a href="#/active">Active</a>\n            </li>\n            <li>\n                <a href="#/completed">Completed</a>\n            </li>\n        </ul>\n        <!-- Hidden if no completed items are left ↓ -->\n        <button id="clear-completed">Clear completed (1)</button>\n    </footer>\n</section>\n';
+module.exports = '<section id="todoapp">\n    <header id="header">\n        <h1>todos</h1>\n        <input id="new-todo" placeholder="What needs to be done?" autofocus>\n    </header>\n    <!-- This section should be hidden by default and shown when there are todos -->\n    <section id="main">\n        <input id="toggle-all" type="checkbox">\n        <label for="toggle-all">Mark all as complete</label>\n        <ul id="todo-list"></ul>\n    </section>\n    <!-- This footer should hidden by default and shown when there are todos -->\n    <footer id="footer">\n        <!-- This should be `0 items left` by default -->\n        <span id="todo-count"><strong>1</strong> item left</span>\n        <!-- Remove this if you don\'t implement routing -->\n        <ul id="filters">\n            <li>\n                <a class="selected" href="#/">All</a>\n            </li>\n            <li>\n                <a href="#/active">Active</a>\n            </li>\n            <li>\n                <a href="#/completed">Completed</a>\n            </li>\n        </ul>\n        <!-- Hidden if no completed items are left ↓ -->\n        <button id="clear-completed">Clear completed (1)</button>\n    </footer>\n</section>\n';
 }, {}],
 6: [function(require, module, exports) {
 /**
@@ -1255,42 +1267,2482 @@ exports.unbind = function(el, type, fn, capture){
 };
 }, {}],
 8: [function(require, module, exports) {
-module.exports = function Todo () {
-	console.log('hello world');
+var classes = require('component/classes'),
+	domify = require('component/domify'),
+	$template = domify(require('./template.html'));
+
+function View (model) {
+	this.model = model;
+	this.$el = $template.cloneNode(true); // Clone (deep) to avoid updating original $template
+}
+
+View.prototype.render = function () {
+	var $title = this.$el.querySelector('label');
+
+	if (this.model.completed()) {
+		classes(this.$el).add('completed');
+	} else {
+		classes(this.$el).remove('completed');
+	}
+
+	$title.textContent = this.model.title();
+
+	return this.$el;
+};
+
+module.exports = {
+	View: View,
+	Model: require('./model.js')
+};
+
+}, {"component/classes":6,"component/domify":4,"./template.html":11,"./model.js":12}],
+11: [function(require, module, exports) {
+module.exports = '<li>\n    <div class="view">\n        <input class="toggle" type="checkbox">\n        <label></label>\n        <button class="destroy"></button>\n    </div>\n    <input class="edit" value="Rule the web">\n</li>\n';
+}, {}],
+12: [function(require, module, exports) {
+var model = require('component/model');
+
+var Todo = model('Todo');
+
+Todo.attr('order');
+Todo.attr('title');
+Todo.attr('completed');
+
+module.exports = Todo;
+
+}, {"component/model":13}],
+13: [function(require, module, exports) {
+
+/**
+ * Module dependencies.
+ */
+
+try {
+  var Emitter = require('emitter');
+} catch (e) {
+  var Emitter = require('component-emitter');
+}
+
+var proto = require('./proto');
+var statics = require('./static');
+
+/**
+ * Expose `createModel`.
+ */
+
+module.exports = createModel;
+
+/**
+ * Create a new model constructor with the given `name`.
+ *
+ * @param {String} name
+ * @return {Function}
+ * @api public
+ */
+
+function createModel(name) {
+  if ('string' != typeof name) throw new TypeError('model name required');
+
+  /**
+   * Initialize a new model with the given `attrs`.
+   *
+   * @param {Object} attrs
+   * @api public
+   */
+
+  function model(attrs) {
+    if (!(this instanceof model)) return new model(attrs);
+    attrs = attrs || {};
+    this._callbacks = {};
+    this.attrs = attrs;
+    this.dirty = attrs;
+    this.model.emit('construct', this, attrs);
+  }
+
+  // mixin emitter
+
+  Emitter(model);
+
+  // statics
+
+  model.modelName = name;
+  model._base = '/' + name.toLowerCase() + 's';
+  model.attrs = {};
+  model.validators = [];
+  model._headers = {};
+  for (var key in statics) model[key] = statics[key];
+
+  // prototype
+
+  model.prototype = {};
+  model.prototype.model = model;
+  for (var key in proto) model.prototype[key] = proto[key];
+
+  return model;
+}
+
+
+}, {"emitter":14,"component-emitter":14,"./proto":15,"./static":16}],
+14: [function(require, module, exports) {
+
+/**
+ * Expose `Emitter`.
+ */
+
+module.exports = Emitter;
+
+/**
+ * Initialize a new `Emitter`.
+ *
+ * @api public
+ */
+
+function Emitter(obj) {
+  if (obj) return mixin(obj);
+};
+
+/**
+ * Mixin the emitter properties.
+ *
+ * @param {Object} obj
+ * @return {Object}
+ * @api private
+ */
+
+function mixin(obj) {
+  for (var key in Emitter.prototype) {
+    obj[key] = Emitter.prototype[key];
+  }
+  return obj;
+}
+
+/**
+ * Listen on the given `event` with `fn`.
+ *
+ * @param {String} event
+ * @param {Function} fn
+ * @return {Emitter}
+ * @api public
+ */
+
+Emitter.prototype.on =
+Emitter.prototype.addEventListener = function(event, fn){
+  this._callbacks = this._callbacks || {};
+  (this._callbacks[event] = this._callbacks[event] || [])
+    .push(fn);
+  return this;
+};
+
+/**
+ * Adds an `event` listener that will be invoked a single
+ * time then automatically removed.
+ *
+ * @param {String} event
+ * @param {Function} fn
+ * @return {Emitter}
+ * @api public
+ */
+
+Emitter.prototype.once = function(event, fn){
+  var self = this;
+  this._callbacks = this._callbacks || {};
+
+  function on() {
+    self.off(event, on);
+    fn.apply(this, arguments);
+  }
+
+  on.fn = fn;
+  this.on(event, on);
+  return this;
+};
+
+/**
+ * Remove the given callback for `event` or all
+ * registered callbacks.
+ *
+ * @param {String} event
+ * @param {Function} fn
+ * @return {Emitter}
+ * @api public
+ */
+
+Emitter.prototype.off =
+Emitter.prototype.removeListener =
+Emitter.prototype.removeAllListeners =
+Emitter.prototype.removeEventListener = function(event, fn){
+  this._callbacks = this._callbacks || {};
+
+  // all
+  if (0 == arguments.length) {
+    this._callbacks = {};
+    return this;
+  }
+
+  // specific event
+  var callbacks = this._callbacks[event];
+  if (!callbacks) return this;
+
+  // remove all handlers
+  if (1 == arguments.length) {
+    delete this._callbacks[event];
+    return this;
+  }
+
+  // remove specific handler
+  var cb;
+  for (var i = 0; i < callbacks.length; i++) {
+    cb = callbacks[i];
+    if (cb === fn || cb.fn === fn) {
+      callbacks.splice(i, 1);
+      break;
+    }
+  }
+  return this;
+};
+
+/**
+ * Emit `event` with the given args.
+ *
+ * @param {String} event
+ * @param {Mixed} ...
+ * @return {Emitter}
+ */
+
+Emitter.prototype.emit = function(event){
+  this._callbacks = this._callbacks || {};
+  var args = [].slice.call(arguments, 1)
+    , callbacks = this._callbacks[event];
+
+  if (callbacks) {
+    callbacks = callbacks.slice(0);
+    for (var i = 0, len = callbacks.length; i < len; ++i) {
+      callbacks[i].apply(this, args);
+    }
+  }
+
+  return this;
+};
+
+/**
+ * Return array of callbacks for `event`.
+ *
+ * @param {String} event
+ * @return {Array}
+ * @api public
+ */
+
+Emitter.prototype.listeners = function(event){
+  this._callbacks = this._callbacks || {};
+  return this._callbacks[event] || [];
+};
+
+/**
+ * Check if this emitter has `event` handlers.
+ *
+ * @param {String} event
+ * @return {Boolean}
+ * @api public
+ */
+
+Emitter.prototype.hasListeners = function(event){
+  return !! this.listeners(event).length;
 };
 
 }, {}],
-9: [function(require, module, exports) {
-/*jslint browser:true */
+15: [function(require, module, exports) {
 
-var Enumerable = require('component/enumerable'),
-	Model = require('/todo').Model;
+/**
+ * Module dependencies.
+ */
 
-function Collection(data) {
-	data = data || [];
-
-	data.forEach(function (item) {
-		this[item.order] = new Model(item);
-	}, this);
+try {
+  var Emitter = require('emitter');
+  var each = require('each');
+} catch (e) {
+  var Emitter = require('component-emitter');
+  var each = require('component-each');
 }
+
+var request = require('superagent');
+var noop = function(){};
+
+/**
+ * Mixin emitter.
+ */
+
+Emitter(exports);
+
+/**
+ * Expose request for configuration
+ */
+exports.request = request;
+
+/**
+ * Register an error `msg` on `attr`.
+ *
+ * @param {String} attr
+ * @param {String} msg
+ * @return {Object} self
+ * @api public
+ */
+
+exports.error = function(attr, msg){
+  this.errors.push({
+    attr: attr,
+    message: msg
+  });
+  return this;
+};
+
+/**
+ * Check if this model is new.
+ *
+ * @return {Boolean}
+ * @api public
+ */
+
+exports.isNew = function(){
+  var key = this.model.primaryKey;
+  return ! this.has(key);
+};
+
+/**
+ * Get / set the primary key.
+ *
+ * @param {Mixed} val
+ * @return {Mixed}
+ * @api public
+ */
+
+exports.primary = function(val){
+  var key = this.model.primaryKey;
+  if (0 == arguments.length) return this[key]();
+  return this[key](val);
+};
+
+/**
+ * Validate the model and return a boolean.
+ *
+ * Example:
+ *
+ *    user.isValid()
+ *    // => false
+ *
+ *    user.errors
+ *    // => [{ attr: ..., message: ... }]
+ *
+ * @return {Boolean}
+ * @api public
+ */
+
+exports.isValid = function(){
+  this.validate();
+  return 0 == this.errors.length;
+};
+
+/**
+ * Return `false` or an object
+ * containing the "dirty" attributes.
+ *
+ * Optionally check for a specific `attr`.
+ *
+ * @param {String} [attr]
+ * @return {Object|Boolean}
+ * @api public
+ */
+
+exports.changed = function(attr){
+  var dirty = this.dirty;
+  if (Object.keys(dirty).length) {
+    if (attr) return !! dirty[attr];
+    return dirty;
+  }
+  return false;
+};
+
+/**
+ * Perform validations.
+ *
+ * @api private
+ */
+
+exports.validate = function(){
+  var self = this;
+  var fns = this.model.validators;
+  this.errors = [];
+  each(fns, function(fn){ fn(self) });
+};
+
+/**
+ * Destroy the model and mark it as `.destroyed`
+ * and invoke `fn(err)`.
+ *
+ * Events:
+ *
+ *  - `destroying` before deletion
+ *  - `destroy` on deletion
+ *
+ * @param {Function} [fn]
+ * @api public
+ */
+
+exports.destroy = function(fn){
+  fn = fn || noop;
+  if (this.isNew()) return fn(new Error('not saved'));
+  var self = this;
+  var url = this.url();
+  this.model.emit('destroying', this);
+  this.emit('destroying');
+  this.request
+    .del(url)
+    .set(this.model._headers)
+    .end(function(res){
+      if (res.error) return fn(error(res), res);
+      self.destroyed = true;
+      self.model.emit('destroy', self, res);
+      self.emit('destroy');
+      fn(null, res);
+    });
+};
+
+/**
+ * Save and invoke `fn(err)`.
+ *
+ * Events:
+ *
+ *  - `saving` pre-update or save, after validation
+ *  - `save` on updates and saves
+ *
+ * @param {Function} [fn]
+ * @api public
+ */
+
+exports.save = function(fn){
+  if (!this.isNew()) return this.update(fn);
+  var self = this;
+  var url = this.model.url();
+  var key = this.model.primaryKey;
+  fn = fn || noop;
+  if (!this.isValid()) return fn(new Error('validation failed'));
+  this.model.emit('saving', this);
+  this.emit('saving');
+  this.request
+    .post(url)
+    .set(this.model._headers)
+    .send(self)
+    .end(function(res){
+      if (res.error) return fn(error(res), res);
+      if (res.body) self.primary(res.body[key]);
+      self.dirty = {};
+      self.model.emit('save', self, res);
+      self.emit('save');
+      fn(null, res);
+    });
+};
+
+/**
+ * Update and invoke `fn(err)`.
+ *
+ * @param {Function} [fn]
+ * @api private
+ */
+
+exports.update = function(fn){
+  var self = this;
+  var url = this.url();
+  fn = fn || noop;
+  if (!this.isValid()) return fn(new Error('validation failed'));
+  this.model.emit('saving', this);
+  this.emit('saving');
+  this.request
+    .put(url)
+    .set(this.model._headers)
+    .send(self)
+    .end(function(res){
+      if (res.error) return fn(error(res), res);
+      self.dirty = {};
+      self.model.emit('save', self, res);
+      self.emit('save');
+      fn(null, res);
+    });
+};
+
+/**
+ * Return a url for `path` relative to this model.
+ *
+ * Example:
+ *
+ *    var user = new User({ id: 5 });
+ *    user.url('edit');
+ *    // => "/users/5/edit"
+ *
+ * @param {String} path
+ * @return {String}
+ * @api public
+ */
+
+exports.url = function(path){
+  var model = this.model;
+  var url = model._base;
+  var id = this.primary();
+  if (0 == arguments.length) return url + '/' + id;
+  return url + '/' + id + '/' + path;
+};
+
+/**
+ * Set multiple `attrs`.
+ *
+ * @param {Object} attrs
+ * @return {Object} self
+ * @api public
+ */
+
+exports.set = function(attrs){
+  for (var key in attrs) {
+    this[key](attrs[key]);
+  }
+  return this;
+};
+
+/**
+ * Get `attr` value.
+ *
+ * @param {String} attr
+ * @return {Mixed}
+ * @api public
+ */
+
+exports.get = function(attr){
+  return this.attrs[attr];
+};
+
+/**
+ * Check if `attr` is present (not `null` or `undefined`).
+ *
+ * @param {String} attr
+ * @return {Boolean}
+ * @api public
+ */
+
+exports.has = function(attr){
+  return null != this.attrs[attr];
+};
+
+/**
+ * Return the JSON representation of the model.
+ *
+ * @return {Object}
+ * @api public
+ */
+
+exports.toJSON = function(){
+  return this.attrs;
+};
+
+/**
+ * Response error helper.
+ *
+ * @param {Response} er
+ * @return {Error}
+ * @api private
+ */
+
+function error(res) {
+  return new Error('got ' + res.status + ' response');
+}
+
+}, {"emitter":14,"each":17,"component-emitter":14,"component-each":17,"superagent":18}],
+17: [function(require, module, exports) {
+
+/**
+ * Module dependencies.
+ */
+
+var type = require('type');
+var toFunction = require('to-function');
+
+/**
+ * HOP reference.
+ */
+
+var has = Object.prototype.hasOwnProperty;
+
+/**
+ * Iterate the given `obj` and invoke `fn(val, i)`
+ * in optional context `ctx`.
+ *
+ * @param {String|Array|Object} obj
+ * @param {Function} fn
+ * @param {Object} [ctx]
+ * @api public
+ */
+
+module.exports = function(obj, fn, ctx){
+  fn = toFunction(fn);
+  ctx = ctx || this;
+  switch (type(obj)) {
+    case 'array':
+      return array(obj, fn, ctx);
+    case 'object':
+      if ('number' == typeof obj.length) return array(obj, fn, ctx);
+      return object(obj, fn, ctx);
+    case 'string':
+      return string(obj, fn, ctx);
+  }
+};
+
+/**
+ * Iterate string chars.
+ *
+ * @param {String} obj
+ * @param {Function} fn
+ * @param {Object} ctx
+ * @api private
+ */
+
+function string(obj, fn, ctx) {
+  for (var i = 0; i < obj.length; ++i) {
+    fn.call(ctx, obj.charAt(i), i);
+  }
+}
+
+/**
+ * Iterate object keys.
+ *
+ * @param {Object} obj
+ * @param {Function} fn
+ * @param {Object} ctx
+ * @api private
+ */
+
+function object(obj, fn, ctx) {
+  for (var key in obj) {
+    if (has.call(obj, key)) {
+      fn.call(ctx, key, obj[key]);
+    }
+  }
+}
+
+/**
+ * Iterate array-ish.
+ *
+ * @param {Array|Object} obj
+ * @param {Function} fn
+ * @param {Object} ctx
+ * @api private
+ */
+
+function array(obj, fn, ctx) {
+  for (var i = 0; i < obj.length; ++i) {
+    fn.call(ctx, obj[i], i);
+  }
+}
+
+}, {"type":19,"to-function":20}],
+19: [function(require, module, exports) {
+
+/**
+ * toString ref.
+ */
+
+var toString = Object.prototype.toString;
+
+/**
+ * Return the type of `val`.
+ *
+ * @param {Mixed} val
+ * @return {String}
+ * @api public
+ */
+
+module.exports = function(val){
+  switch (toString.call(val)) {
+    case '[object Function]': return 'function';
+    case '[object Date]': return 'date';
+    case '[object RegExp]': return 'regexp';
+    case '[object Arguments]': return 'arguments';
+    case '[object Array]': return 'array';
+    case '[object String]': return 'string';
+  }
+
+  if (val === null) return 'null';
+  if (val === undefined) return 'undefined';
+  if (val && val.nodeType === 1) return 'element';
+  if (val === Object(val)) return 'object';
+
+  return typeof val;
+};
+
+}, {}],
+20: [function(require, module, exports) {
+
+/**
+ * Module Dependencies
+ */
+
+var expr;
+try {
+  expr = require('props');
+} catch(e) {
+  expr = require('component-props');
+}
+
+/**
+ * Expose `toFunction()`.
+ */
+
+module.exports = toFunction;
+
+/**
+ * Convert `obj` to a `Function`.
+ *
+ * @param {Mixed} obj
+ * @return {Function}
+ * @api private
+ */
+
+function toFunction(obj) {
+  switch ({}.toString.call(obj)) {
+    case '[object Object]':
+      return objectToFunction(obj);
+    case '[object Function]':
+      return obj;
+    case '[object String]':
+      return stringToFunction(obj);
+    case '[object RegExp]':
+      return regexpToFunction(obj);
+    default:
+      return defaultToFunction(obj);
+  }
+}
+
+/**
+ * Default to strict equality.
+ *
+ * @param {Mixed} val
+ * @return {Function}
+ * @api private
+ */
+
+function defaultToFunction(val) {
+  return function(obj){
+    return val === obj;
+  };
+}
+
+/**
+ * Convert `re` to a function.
+ *
+ * @param {RegExp} re
+ * @return {Function}
+ * @api private
+ */
+
+function regexpToFunction(re) {
+  return function(obj){
+    return re.test(obj);
+  };
+}
+
+/**
+ * Convert property `str` to a function.
+ *
+ * @param {String} str
+ * @return {Function}
+ * @api private
+ */
+
+function stringToFunction(str) {
+  // immediate such as "> 20"
+  if (/^ *\W+/.test(str)) return new Function('_', 'return _ ' + str);
+
+  // properties such as "name.first" or "age > 18" or "age > 18 && age < 36"
+  return new Function('_', 'return ' + get(str));
+}
+
+/**
+ * Convert `object` to a function.
+ *
+ * @param {Object} object
+ * @return {Function}
+ * @api private
+ */
+
+function objectToFunction(obj) {
+  var match = {};
+  for (var key in obj) {
+    match[key] = typeof obj[key] === 'string'
+      ? defaultToFunction(obj[key])
+      : toFunction(obj[key]);
+  }
+  return function(val){
+    if (typeof val !== 'object') return false;
+    for (var key in match) {
+      if (!(key in val)) return false;
+      if (!match[key](val[key])) return false;
+    }
+    return true;
+  };
+}
+
+/**
+ * Built the getter function. Supports getter style functions
+ *
+ * @param {String} str
+ * @return {String}
+ * @api private
+ */
+
+function get(str) {
+  var props = expr(str);
+  if (!props.length) return '_.' + str;
+
+  var val, i, prop;
+  for (i = 0; i < props.length; i++) {
+    prop = props[i];
+    val = '_.' + prop;
+    val = "('function' == typeof " + val + " ? " + val + "() : " + val + ")";
+
+    // mimic negative lookbehind to avoid problems with nested properties
+    str = stripNested(prop, str, val);
+  }
+
+  return str;
+}
+
+/**
+ * Mimic negative lookbehind to avoid problems with nested properties.
+ *
+ * See: http://blog.stevenlevithan.com/archives/mimic-lookbehind-javascript
+ *
+ * @param {String} prop
+ * @param {String} str
+ * @param {String} val
+ * @return {String}
+ * @api private
+ */
+
+function stripNested (prop, str, val) {
+  return str.replace(new RegExp('(\\.)?' + prop, 'g'), function($0, $1) {
+    return $1 ? $0 : val;
+  });
+}
+
+}, {"props":21,"component-props":21}],
+21: [function(require, module, exports) {
+/**
+ * Global Names
+ */
+
+var globals = /\b(this|Array|Date|Object|Math|JSON)\b/g;
+
+/**
+ * Return immediate identifiers parsed from `str`.
+ *
+ * @param {String} str
+ * @param {String|Function} map function or prefix
+ * @return {Array}
+ * @api public
+ */
+
+module.exports = function(str, fn){
+  var p = unique(props(str));
+  if (fn && 'string' == typeof fn) fn = prefixed(fn);
+  if (fn) return map(str, p, fn);
+  return p;
+};
+
+/**
+ * Return immediate identifiers in `str`.
+ *
+ * @param {String} str
+ * @return {Array}
+ * @api private
+ */
+
+function props(str) {
+  return str
+    .replace(/\.\w+|\w+ *\(|"[^"]*"|'[^']*'|\/([^/]+)\//g, '')
+    .replace(globals, '')
+    .match(/[$a-zA-Z_]\w*/g)
+    || [];
+}
+
+/**
+ * Return `str` with `props` mapped with `fn`.
+ *
+ * @param {String} str
+ * @param {Array} props
+ * @param {Function} fn
+ * @return {String}
+ * @api private
+ */
+
+function map(str, props, fn) {
+  var re = /\.\w+|\w+ *\(|"[^"]*"|'[^']*'|\/([^/]+)\/|[a-zA-Z_]\w*/g;
+  return str.replace(re, function(_){
+    if ('(' == _[_.length - 1]) return fn(_);
+    if (!~props.indexOf(_)) return _;
+    return fn(_);
+  });
+}
+
+/**
+ * Return unique array.
+ *
+ * @param {Array} arr
+ * @return {Array}
+ * @api private
+ */
+
+function unique(arr) {
+  var ret = [];
+
+  for (var i = 0; i < arr.length; i++) {
+    if (~ret.indexOf(arr[i])) continue;
+    ret.push(arr[i]);
+  }
+
+  return ret;
+}
+
+/**
+ * Map with prefix `str`.
+ */
+
+function prefixed(str) {
+  return function(_){
+    return str + _;
+  };
+}
+
+}, {}],
+18: [function(require, module, exports) {
+/**
+ * Module dependencies.
+ */
+
+var Emitter = require('emitter');
+var reduce = require('reduce');
+
+/**
+ * Root reference for iframes.
+ */
+
+var root = 'undefined' == typeof window
+  ? this
+  : window;
+
+/**
+ * Noop.
+ */
+
+function noop(){};
+
+/**
+ * Check if `obj` is a host object,
+ * we don't want to serialize these :)
+ *
+ * TODO: future proof, move to compoent land
+ *
+ * @param {Object} obj
+ * @return {Boolean}
+ * @api private
+ */
+
+function isHost(obj) {
+  var str = {}.toString.call(obj);
+
+  switch (str) {
+    case '[object File]':
+    case '[object Blob]':
+    case '[object FormData]':
+      return true;
+    default:
+      return false;
+  }
+}
+
+/**
+ * Determine XHR.
+ */
+
+function getXHR() {
+  if (root.XMLHttpRequest
+    && ('file:' != root.location.protocol || !root.ActiveXObject)) {
+    return new XMLHttpRequest;
+  } else {
+    try { return new ActiveXObject('Microsoft.XMLHTTP'); } catch(e) {}
+    try { return new ActiveXObject('Msxml2.XMLHTTP.6.0'); } catch(e) {}
+    try { return new ActiveXObject('Msxml2.XMLHTTP.3.0'); } catch(e) {}
+    try { return new ActiveXObject('Msxml2.XMLHTTP'); } catch(e) {}
+  }
+  return false;
+}
+
+/**
+ * Removes leading and trailing whitespace, added to support IE.
+ *
+ * @param {String} s
+ * @return {String}
+ * @api private
+ */
+
+var trim = ''.trim
+  ? function(s) { return s.trim(); }
+  : function(s) { return s.replace(/(^\s*|\s*$)/g, ''); };
+
+/**
+ * Check if `obj` is an object.
+ *
+ * @param {Object} obj
+ * @return {Boolean}
+ * @api private
+ */
+
+function isObject(obj) {
+  return obj === Object(obj);
+}
+
+/**
+ * Serialize the given `obj`.
+ *
+ * @param {Object} obj
+ * @return {String}
+ * @api private
+ */
+
+function serialize(obj) {
+  if (!isObject(obj)) return obj;
+  var pairs = [];
+  for (var key in obj) {
+    if (null != obj[key]) {
+      pairs.push(encodeURIComponent(key)
+        + '=' + encodeURIComponent(obj[key]));
+    }
+  }
+  return pairs.join('&');
+}
+
+/**
+ * Expose serialization method.
+ */
+
+ request.serializeObject = serialize;
+
+ /**
+  * Parse the given x-www-form-urlencoded `str`.
+  *
+  * @param {String} str
+  * @return {Object}
+  * @api private
+  */
+
+function parseString(str) {
+  var obj = {};
+  var pairs = str.split('&');
+  var parts;
+  var pair;
+
+  for (var i = 0, len = pairs.length; i < len; ++i) {
+    pair = pairs[i];
+    parts = pair.split('=');
+    obj[decodeURIComponent(parts[0])] = decodeURIComponent(parts[1]);
+  }
+
+  return obj;
+}
+
+/**
+ * Expose parser.
+ */
+
+request.parseString = parseString;
+
+/**
+ * Default MIME type map.
+ *
+ *     superagent.types.xml = 'application/xml';
+ *
+ */
+
+request.types = {
+  html: 'text/html',
+  json: 'application/json',
+  xml: 'application/xml',
+  urlencoded: 'application/x-www-form-urlencoded',
+  'form': 'application/x-www-form-urlencoded',
+  'form-data': 'application/x-www-form-urlencoded'
+};
+
+/**
+ * Default serialization map.
+ *
+ *     superagent.serialize['application/xml'] = function(obj){
+ *       return 'generated xml here';
+ *     };
+ *
+ */
+
+ request.serialize = {
+   'application/x-www-form-urlencoded': serialize,
+   'application/json': JSON.stringify
+ };
+
+ /**
+  * Default parsers.
+  *
+  *     superagent.parse['application/xml'] = function(str){
+  *       return { object parsed from str };
+  *     };
+  *
+  */
+
+request.parse = {
+  'application/x-www-form-urlencoded': parseString,
+  'application/json': JSON.parse
+};
+
+/**
+ * Parse the given header `str` into
+ * an object containing the mapped fields.
+ *
+ * @param {String} str
+ * @return {Object}
+ * @api private
+ */
+
+function parseHeader(str) {
+  var lines = str.split(/\r?\n/);
+  var fields = {};
+  var index;
+  var line;
+  var field;
+  var val;
+
+  lines.pop(); // trailing CRLF
+
+  for (var i = 0, len = lines.length; i < len; ++i) {
+    line = lines[i];
+    index = line.indexOf(':');
+    field = line.slice(0, index).toLowerCase();
+    val = trim(line.slice(index + 1));
+    fields[field] = val;
+  }
+
+  return fields;
+}
+
+/**
+ * Return the mime type for the given `str`.
+ *
+ * @param {String} str
+ * @return {String}
+ * @api private
+ */
+
+function type(str){
+  return str.split(/ *; */).shift();
+};
+
+/**
+ * Return header field parameters.
+ *
+ * @param {String} str
+ * @return {Object}
+ * @api private
+ */
+
+function params(str){
+  return reduce(str.split(/ *; */), function(obj, str){
+    var parts = str.split(/ *= */)
+      , key = parts.shift()
+      , val = parts.shift();
+
+    if (key && val) obj[key] = val;
+    return obj;
+  }, {});
+};
+
+/**
+ * Initialize a new `Response` with the given `xhr`.
+ *
+ *  - set flags (.ok, .error, etc)
+ *  - parse header
+ *
+ * Examples:
+ *
+ *  Aliasing `superagent` as `request` is nice:
+ *
+ *      request = superagent;
+ *
+ *  We can use the promise-like API, or pass callbacks:
+ *
+ *      request.get('/').end(function(res){});
+ *      request.get('/', function(res){});
+ *
+ *  Sending data can be chained:
+ *
+ *      request
+ *        .post('/user')
+ *        .send({ name: 'tj' })
+ *        .end(function(res){});
+ *
+ *  Or passed to `.send()`:
+ *
+ *      request
+ *        .post('/user')
+ *        .send({ name: 'tj' }, function(res){});
+ *
+ *  Or passed to `.post()`:
+ *
+ *      request
+ *        .post('/user', { name: 'tj' })
+ *        .end(function(res){});
+ *
+ * Or further reduced to a single call for simple cases:
+ *
+ *      request
+ *        .post('/user', { name: 'tj' }, function(res){});
+ *
+ * @param {XMLHTTPRequest} xhr
+ * @param {Object} options
+ * @api private
+ */
+
+function Response(req, options) {
+  options = options || {};
+  this.req = req;
+  this.xhr = this.req.xhr;
+  this.text = this.xhr.responseText;
+  this.setStatusProperties(this.xhr.status);
+  this.header = this.headers = parseHeader(this.xhr.getAllResponseHeaders());
+  // getAllResponseHeaders sometimes falsely returns "" for CORS requests, but
+  // getResponseHeader still works. so we get content-type even if getting
+  // other headers fails.
+  this.header['content-type'] = this.xhr.getResponseHeader('content-type');
+  this.setHeaderProperties(this.header);
+  this.body = this.req.method != 'HEAD'
+    ? this.parseBody(this.text)
+    : null;
+}
+
+/**
+ * Get case-insensitive `field` value.
+ *
+ * @param {String} field
+ * @return {String}
+ * @api public
+ */
+
+Response.prototype.get = function(field){
+  return this.header[field.toLowerCase()];
+};
+
+/**
+ * Set header related properties:
+ *
+ *   - `.type` the content type without params
+ *
+ * A response of "Content-Type: text/plain; charset=utf-8"
+ * will provide you with a `.type` of "text/plain".
+ *
+ * @param {Object} header
+ * @api private
+ */
+
+Response.prototype.setHeaderProperties = function(header){
+  // content-type
+  var ct = this.header['content-type'] || '';
+  this.type = type(ct);
+
+  // params
+  var obj = params(ct);
+  for (var key in obj) this[key] = obj[key];
+};
+
+/**
+ * Parse the given body `str`.
+ *
+ * Used for auto-parsing of bodies. Parsers
+ * are defined on the `superagent.parse` object.
+ *
+ * @param {String} str
+ * @return {Mixed}
+ * @api private
+ */
+
+Response.prototype.parseBody = function(str){
+  var parse = request.parse[this.type];
+  return parse
+    ? parse(str)
+    : null;
+};
+
+/**
+ * Set flags such as `.ok` based on `status`.
+ *
+ * For example a 2xx response will give you a `.ok` of __true__
+ * whereas 5xx will be __false__ and `.error` will be __true__. The
+ * `.clientError` and `.serverError` are also available to be more
+ * specific, and `.statusType` is the class of error ranging from 1..5
+ * sometimes useful for mapping respond colors etc.
+ *
+ * "sugar" properties are also defined for common cases. Currently providing:
+ *
+ *   - .noContent
+ *   - .badRequest
+ *   - .unauthorized
+ *   - .notAcceptable
+ *   - .notFound
+ *
+ * @param {Number} status
+ * @api private
+ */
+
+Response.prototype.setStatusProperties = function(status){
+  var type = status / 100 | 0;
+
+  // status / class
+  this.status = status;
+  this.statusType = type;
+
+  // basics
+  this.info = 1 == type;
+  this.ok = 2 == type;
+  this.clientError = 4 == type;
+  this.serverError = 5 == type;
+  this.error = (4 == type || 5 == type)
+    ? this.toError()
+    : false;
+
+  // sugar
+  this.accepted = 202 == status;
+  this.noContent = 204 == status || 1223 == status;
+  this.badRequest = 400 == status;
+  this.unauthorized = 401 == status;
+  this.notAcceptable = 406 == status;
+  this.notFound = 404 == status;
+  this.forbidden = 403 == status;
+};
+
+/**
+ * Return an `Error` representative of this response.
+ *
+ * @return {Error}
+ * @api public
+ */
+
+Response.prototype.toError = function(){
+  var req = this.req;
+  var method = req.method;
+  var url = req.url;
+
+  var msg = 'cannot ' + method + ' ' + url + ' (' + this.status + ')';
+  var err = new Error(msg);
+  err.status = this.status;
+  err.method = method;
+  err.url = url;
+
+  return err;
+};
+
+/**
+ * Expose `Response`.
+ */
+
+request.Response = Response;
+
+/**
+ * Initialize a new `Request` with the given `method` and `url`.
+ *
+ * @param {String} method
+ * @param {String} url
+ * @api public
+ */
+
+function Request(method, url) {
+  var self = this;
+  Emitter.call(this);
+  this._query = this._query || [];
+  this.method = method;
+  this.url = url;
+  this.header = {};
+  this._header = {};
+  this.on('end', function(){
+    var res = new Response(self);
+    if ('HEAD' == method) res.text = null;
+    self.callback(null, res);
+  });
+}
+
+/**
+ * Mixin `Emitter`.
+ */
+
+Emitter(Request.prototype);
+
+/**
+ * Allow for extension
+ */
+
+Request.prototype.use = function(fn) {
+  fn(this);
+  return this;
+}
+
+/**
+ * Set timeout to `ms`.
+ *
+ * @param {Number} ms
+ * @return {Request} for chaining
+ * @api public
+ */
+
+Request.prototype.timeout = function(ms){
+  this._timeout = ms;
+  return this;
+};
+
+/**
+ * Clear previous timeout.
+ *
+ * @return {Request} for chaining
+ * @api public
+ */
+
+Request.prototype.clearTimeout = function(){
+  this._timeout = 0;
+  clearTimeout(this._timer);
+  return this;
+};
+
+/**
+ * Abort the request, and clear potential timeout.
+ *
+ * @return {Request}
+ * @api public
+ */
+
+Request.prototype.abort = function(){
+  if (this.aborted) return;
+  this.aborted = true;
+  this.xhr.abort();
+  this.clearTimeout();
+  this.emit('abort');
+  return this;
+};
+
+/**
+ * Set header `field` to `val`, or multiple fields with one object.
+ *
+ * Examples:
+ *
+ *      req.get('/')
+ *        .set('Accept', 'application/json')
+ *        .set('X-API-Key', 'foobar')
+ *        .end(callback);
+ *
+ *      req.get('/')
+ *        .set({ Accept: 'application/json', 'X-API-Key': 'foobar' })
+ *        .end(callback);
+ *
+ * @param {String|Object} field
+ * @param {String} val
+ * @return {Request} for chaining
+ * @api public
+ */
+
+Request.prototype.set = function(field, val){
+  if (isObject(field)) {
+    for (var key in field) {
+      this.set(key, field[key]);
+    }
+    return this;
+  }
+  this._header[field.toLowerCase()] = val;
+  this.header[field] = val;
+  return this;
+};
+
+/**
+ * Get case-insensitive header `field` value.
+ *
+ * @param {String} field
+ * @return {String}
+ * @api private
+ */
+
+Request.prototype.getHeader = function(field){
+  return this._header[field.toLowerCase()];
+};
+
+/**
+ * Set Content-Type to `type`, mapping values from `request.types`.
+ *
+ * Examples:
+ *
+ *      superagent.types.xml = 'application/xml';
+ *
+ *      request.post('/')
+ *        .type('xml')
+ *        .send(xmlstring)
+ *        .end(callback);
+ *
+ *      request.post('/')
+ *        .type('application/xml')
+ *        .send(xmlstring)
+ *        .end(callback);
+ *
+ * @param {String} type
+ * @return {Request} for chaining
+ * @api public
+ */
+
+Request.prototype.type = function(type){
+  this.set('Content-Type', request.types[type] || type);
+  return this;
+};
+
+/**
+ * Set Accept to `type`, mapping values from `request.types`.
+ *
+ * Examples:
+ *
+ *      superagent.types.json = 'application/json';
+ *
+ *      request.get('/agent')
+ *        .accept('json')
+ *        .end(callback);
+ *
+ *      request.get('/agent')
+ *        .accept('application/json')
+ *        .end(callback);
+ *
+ * @param {String} accept
+ * @return {Request} for chaining
+ * @api public
+ */
+
+Request.prototype.accept = function(type){
+  this.set('Accept', request.types[type] || type);
+  return this;
+};
+
+/**
+ * Set Authorization field value with `user` and `pass`.
+ *
+ * @param {String} user
+ * @param {String} pass
+ * @return {Request} for chaining
+ * @api public
+ */
+
+Request.prototype.auth = function(user, pass){
+  var str = btoa(user + ':' + pass);
+  this.set('Authorization', 'Basic ' + str);
+  return this;
+};
+
+/**
+* Add query-string `val`.
+*
+* Examples:
+*
+*   request.get('/shoes')
+*     .query('size=10')
+*     .query({ color: 'blue' })
+*
+* @param {Object|String} val
+* @return {Request} for chaining
+* @api public
+*/
+
+Request.prototype.query = function(val){
+  if ('string' != typeof val) val = serialize(val);
+  if (val) this._query.push(val);
+  return this;
+};
+
+/**
+ * Write the field `name` and `val` for "multipart/form-data"
+ * request bodies.
+ *
+ * ``` js
+ * request.post('/upload')
+ *   .field('foo', 'bar')
+ *   .end(callback);
+ * ```
+ *
+ * @param {String} name
+ * @param {String|Blob|File} val
+ * @return {Request} for chaining
+ * @api public
+ */
+
+Request.prototype.field = function(name, val){
+  if (!this._formData) this._formData = new FormData();
+  this._formData.append(name, val);
+  return this;
+};
+
+/**
+ * Queue the given `file` as an attachment to the specified `field`,
+ * with optional `filename`.
+ *
+ * ``` js
+ * request.post('/upload')
+ *   .attach(new Blob(['<a id="a"><b id="b">hey!</b></a>'], { type: "text/html"}))
+ *   .end(callback);
+ * ```
+ *
+ * @param {String} field
+ * @param {Blob|File} file
+ * @param {String} filename
+ * @return {Request} for chaining
+ * @api public
+ */
+
+Request.prototype.attach = function(field, file, filename){
+  if (!this._formData) this._formData = new FormData();
+  this._formData.append(field, file, filename);
+  return this;
+};
+
+/**
+ * Send `data`, defaulting the `.type()` to "json" when
+ * an object is given.
+ *
+ * Examples:
+ *
+ *       // querystring
+ *       request.get('/search')
+ *         .end(callback)
+ *
+ *       // multiple data "writes"
+ *       request.get('/search')
+ *         .send({ search: 'query' })
+ *         .send({ range: '1..5' })
+ *         .send({ order: 'desc' })
+ *         .end(callback)
+ *
+ *       // manual json
+ *       request.post('/user')
+ *         .type('json')
+ *         .send('{"name":"tj"})
+ *         .end(callback)
+ *
+ *       // auto json
+ *       request.post('/user')
+ *         .send({ name: 'tj' })
+ *         .end(callback)
+ *
+ *       // manual x-www-form-urlencoded
+ *       request.post('/user')
+ *         .type('form')
+ *         .send('name=tj')
+ *         .end(callback)
+ *
+ *       // auto x-www-form-urlencoded
+ *       request.post('/user')
+ *         .type('form')
+ *         .send({ name: 'tj' })
+ *         .end(callback)
+ *
+ *       // defaults to x-www-form-urlencoded
+  *      request.post('/user')
+  *        .send('name=tobi')
+  *        .send('species=ferret')
+  *        .end(callback)
+ *
+ * @param {String|Object} data
+ * @return {Request} for chaining
+ * @api public
+ */
+
+Request.prototype.send = function(data){
+  var obj = isObject(data);
+  var type = this.getHeader('Content-Type');
+
+  // merge
+  if (obj && isObject(this._data)) {
+    for (var key in data) {
+      this._data[key] = data[key];
+    }
+  } else if ('string' == typeof data) {
+    if (!type) this.type('form');
+    type = this.getHeader('Content-Type');
+    if ('application/x-www-form-urlencoded' == type) {
+      this._data = this._data
+        ? this._data + '&' + data
+        : data;
+    } else {
+      this._data = (this._data || '') + data;
+    }
+  } else {
+    this._data = data;
+  }
+
+  if (!obj) return this;
+  if (!type) this.type('json');
+  return this;
+};
+
+/**
+ * Invoke the callback with `err` and `res`
+ * and handle arity check.
+ *
+ * @param {Error} err
+ * @param {Response} res
+ * @api private
+ */
+
+Request.prototype.callback = function(err, res){
+  var fn = this._callback;
+  if (2 == fn.length) return fn(err, res);
+  if (err) return this.emit('error', err);
+  fn(res);
+};
+
+/**
+ * Invoke callback with x-domain error.
+ *
+ * @api private
+ */
+
+Request.prototype.crossDomainError = function(){
+  var err = new Error('Origin is not allowed by Access-Control-Allow-Origin');
+  err.crossDomain = true;
+  this.callback(err);
+};
+
+/**
+ * Invoke callback with timeout error.
+ *
+ * @api private
+ */
+
+Request.prototype.timeoutError = function(){
+  var timeout = this._timeout;
+  var err = new Error('timeout of ' + timeout + 'ms exceeded');
+  err.timeout = timeout;
+  this.callback(err);
+};
+
+/**
+ * Enable transmission of cookies with x-domain requests.
+ *
+ * Note that for this to work the origin must not be
+ * using "Access-Control-Allow-Origin" with a wildcard,
+ * and also must set "Access-Control-Allow-Credentials"
+ * to "true".
+ *
+ * @api public
+ */
+
+Request.prototype.withCredentials = function(){
+  this._withCredentials = true;
+  return this;
+};
+
+/**
+ * Initiate request, invoking callback `fn(res)`
+ * with an instanceof `Response`.
+ *
+ * @param {Function} fn
+ * @return {Request} for chaining
+ * @api public
+ */
+
+Request.prototype.end = function(fn){
+  var self = this;
+  var xhr = this.xhr = getXHR();
+  var query = this._query.join('&');
+  var timeout = this._timeout;
+  var data = this._formData || this._data;
+
+  // store callback
+  this._callback = fn || noop;
+
+  // state change
+  xhr.onreadystatechange = function(){
+    if (4 != xhr.readyState) return;
+    if (0 == xhr.status) {
+      if (self.aborted) return self.timeoutError();
+      return self.crossDomainError();
+    }
+    self.emit('end');
+  };
+
+  // progress
+  if (xhr.upload) {
+    xhr.upload.onprogress = function(e){
+      e.percent = e.loaded / e.total * 100;
+      self.emit('progress', e);
+    };
+  }
+
+  // timeout
+  if (timeout && !this._timer) {
+    this._timer = setTimeout(function(){
+      self.abort();
+    }, timeout);
+  }
+
+  // querystring
+  if (query) {
+    query = request.serializeObject(query);
+    this.url += ~this.url.indexOf('?')
+      ? '&' + query
+      : '?' + query;
+  }
+
+  // initiate request
+  xhr.open(this.method, this.url, true);
+
+  // CORS
+  if (this._withCredentials) xhr.withCredentials = true;
+
+  // body
+  if ('GET' != this.method && 'HEAD' != this.method && 'string' != typeof data && !isHost(data)) {
+    // serialize stuff
+    var serialize = request.serialize[this.getHeader('Content-Type')];
+    if (serialize) data = serialize(data);
+  }
+
+  // set header fields
+  for (var field in this.header) {
+    if (null == this.header[field]) continue;
+    xhr.setRequestHeader(field, this.header[field]);
+  }
+
+  // send stuff
+  this.emit('request', this);
+  xhr.send(data);
+  return this;
+};
+
+/**
+ * Expose `Request`.
+ */
+
+request.Request = Request;
+
+/**
+ * Issue a request:
+ *
+ * Examples:
+ *
+ *    request('GET', '/users').end(callback)
+ *    request('/users').end(callback)
+ *    request('/users', callback)
+ *
+ * @param {String} method
+ * @param {String|Function} url or callback
+ * @return {Request}
+ * @api public
+ */
+
+function request(method, url) {
+  // callback
+  if ('function' == typeof url) {
+    return new Request('GET', method).end(url);
+  }
+
+  // url first
+  if (1 == arguments.length) {
+    return new Request('GET', method);
+  }
+
+  return new Request(method, url);
+}
+
+/**
+ * GET `url` with optional callback `fn(res)`.
+ *
+ * @param {String} url
+ * @param {Mixed|Function} data or fn
+ * @param {Function} fn
+ * @return {Request}
+ * @api public
+ */
+
+request.get = function(url, data, fn){
+  var req = request('GET', url);
+  if ('function' == typeof data) fn = data, data = null;
+  if (data) req.query(data);
+  if (fn) req.end(fn);
+  return req;
+};
+
+/**
+ * HEAD `url` with optional callback `fn(res)`.
+ *
+ * @param {String} url
+ * @param {Mixed|Function} data or fn
+ * @param {Function} fn
+ * @return {Request}
+ * @api public
+ */
+
+request.head = function(url, data, fn){
+  var req = request('HEAD', url);
+  if ('function' == typeof data) fn = data, data = null;
+  if (data) req.send(data);
+  if (fn) req.end(fn);
+  return req;
+};
+
+/**
+ * DELETE `url` with optional callback `fn(res)`.
+ *
+ * @param {String} url
+ * @param {Function} fn
+ * @return {Request}
+ * @api public
+ */
+
+request.del = function(url, fn){
+  var req = request('DELETE', url);
+  if (fn) req.end(fn);
+  return req;
+};
+
+/**
+ * PATCH `url` with optional `data` and callback `fn(res)`.
+ *
+ * @param {String} url
+ * @param {Mixed} data
+ * @param {Function} fn
+ * @return {Request}
+ * @api public
+ */
+
+request.patch = function(url, data, fn){
+  var req = request('PATCH', url);
+  if ('function' == typeof data) fn = data, data = null;
+  if (data) req.send(data);
+  if (fn) req.end(fn);
+  return req;
+};
+
+/**
+ * POST `url` with optional `data` and callback `fn(res)`.
+ *
+ * @param {String} url
+ * @param {Mixed} data
+ * @param {Function} fn
+ * @return {Request}
+ * @api public
+ */
+
+request.post = function(url, data, fn){
+  var req = request('POST', url);
+  if ('function' == typeof data) fn = data, data = null;
+  if (data) req.send(data);
+  if (fn) req.end(fn);
+  return req;
+};
+
+/**
+ * PUT `url` with optional `data` and callback `fn(res)`.
+ *
+ * @param {String} url
+ * @param {Mixed|Function} data or fn
+ * @param {Function} fn
+ * @return {Request}
+ * @api public
+ */
+
+request.put = function(url, data, fn){
+  var req = request('PUT', url);
+  if ('function' == typeof data) fn = data, data = null;
+  if (data) req.send(data);
+  if (fn) req.end(fn);
+  return req;
+};
+
+/**
+ * Expose `request`.
+ */
+
+module.exports = request;
+
+}, {"emitter":22,"reduce":23}],
+22: [function(require, module, exports) {
+
+/**
+ * Expose `Emitter`.
+ */
+
+module.exports = Emitter;
+
+/**
+ * Initialize a new `Emitter`.
+ *
+ * @api public
+ */
+
+function Emitter(obj) {
+  if (obj) return mixin(obj);
+};
+
+/**
+ * Mixin the emitter properties.
+ *
+ * @param {Object} obj
+ * @return {Object}
+ * @api private
+ */
+
+function mixin(obj) {
+  for (var key in Emitter.prototype) {
+    obj[key] = Emitter.prototype[key];
+  }
+  return obj;
+}
+
+/**
+ * Listen on the given `event` with `fn`.
+ *
+ * @param {String} event
+ * @param {Function} fn
+ * @return {Emitter}
+ * @api public
+ */
+
+Emitter.prototype.on =
+Emitter.prototype.addEventListener = function(event, fn){
+  this._callbacks = this._callbacks || {};
+  (this._callbacks[event] = this._callbacks[event] || [])
+    .push(fn);
+  return this;
+};
+
+/**
+ * Adds an `event` listener that will be invoked a single
+ * time then automatically removed.
+ *
+ * @param {String} event
+ * @param {Function} fn
+ * @return {Emitter}
+ * @api public
+ */
+
+Emitter.prototype.once = function(event, fn){
+  var self = this;
+  this._callbacks = this._callbacks || {};
+
+  function on() {
+    self.off(event, on);
+    fn.apply(this, arguments);
+  }
+
+  on.fn = fn;
+  this.on(event, on);
+  return this;
+};
+
+/**
+ * Remove the given callback for `event` or all
+ * registered callbacks.
+ *
+ * @param {String} event
+ * @param {Function} fn
+ * @return {Emitter}
+ * @api public
+ */
+
+Emitter.prototype.off =
+Emitter.prototype.removeListener =
+Emitter.prototype.removeAllListeners =
+Emitter.prototype.removeEventListener = function(event, fn){
+  this._callbacks = this._callbacks || {};
+
+  // all
+  if (0 == arguments.length) {
+    this._callbacks = {};
+    return this;
+  }
+
+  // specific event
+  var callbacks = this._callbacks[event];
+  if (!callbacks) return this;
+
+  // remove all handlers
+  if (1 == arguments.length) {
+    delete this._callbacks[event];
+    return this;
+  }
+
+  // remove specific handler
+  var cb;
+  for (var i = 0; i < callbacks.length; i++) {
+    cb = callbacks[i];
+    if (cb === fn || cb.fn === fn) {
+      callbacks.splice(i, 1);
+      break;
+    }
+  }
+  return this;
+};
+
+/**
+ * Emit `event` with the given args.
+ *
+ * @param {String} event
+ * @param {Mixed} ...
+ * @return {Emitter}
+ */
+
+Emitter.prototype.emit = function(event){
+  this._callbacks = this._callbacks || {};
+  var args = [].slice.call(arguments, 1)
+    , callbacks = this._callbacks[event];
+
+  if (callbacks) {
+    callbacks = callbacks.slice(0);
+    for (var i = 0, len = callbacks.length; i < len; ++i) {
+      callbacks[i].apply(this, args);
+    }
+  }
+
+  return this;
+};
+
+/**
+ * Return array of callbacks for `event`.
+ *
+ * @param {String} event
+ * @return {Array}
+ * @api public
+ */
+
+Emitter.prototype.listeners = function(event){
+  this._callbacks = this._callbacks || {};
+  return this._callbacks[event] || [];
+};
+
+/**
+ * Check if this emitter has `event` handlers.
+ *
+ * @param {String} event
+ * @return {Boolean}
+ * @api public
+ */
+
+Emitter.prototype.hasListeners = function(event){
+  return !! this.listeners(event).length;
+};
+
+}, {}],
+23: [function(require, module, exports) {
+
+/**
+ * Reduce `arr` with `fn`.
+ *
+ * @param {Array} arr
+ * @param {Function} fn
+ * @param {Mixed} initial
+ *
+ * TODO: combatible error handling?
+ */
+
+module.exports = function(arr, fn, initial){  
+  var idx = 0;
+  var len = arr.length;
+  var curr = arguments.length == 3
+    ? initial
+    : arr[idx++];
+
+  while (idx < len) {
+    curr = fn.call(null, curr, arr[idx], ++idx, arr);
+  }
+  
+  return curr;
+};
+}, {}],
+16: [function(require, module, exports) {
+/**
+ * Module dependencies.
+ */
+
+var Collection = require('collection');
+var request = require('superagent');
+var noop = function(){};
+
+/**
+ * Expose request for configuration
+ */
+
+exports.request = request;
+
+/**
+ * Construct a url to the given `path`.
+ *
+ * Example:
+ *
+ *    User.url('add')
+ *    // => "/users/add"
+ *
+ * @param {String} path
+ * @return {String}
+ * @api public
+ */
+
+exports.url = function(path){
+  var url = this._base;
+  if (0 == arguments.length) return url;
+  return url + '/' + path;
+};
+
+/**
+ * Set base path for urls.
+ * Note this is defaulted to '/' + modelName.toLowerCase() + 's'
+ *
+ * Example:
+ *
+ *   User.route('/api/u')
+ *
+ * @param {String} path
+ * @return {Function} self
+ * @api public
+ */
+
+exports.route = function(path){
+  this._base = path;
+  return this;
+}
+
+/**
+ * Add custom http headers to all requests.
+ *
+ * Example:
+ *
+ *   User.headers({
+ *    'X-CSRF-Token': 'some token',
+ *    'X-API-Token': 'api token
+ *   });
+ *
+ * @param {String|Object} header(s)
+ * @param {String} value
+ * @return {Function} self
+ * @api public
+ */
+
+exports.headers = function(headers){
+  for(var i in headers){
+    this._headers[i] = headers[i];
+  }
+  return this;
+};
+
+/**
+ * Add validation `fn()`.
+ *
+ * @param {Function} fn
+ * @return {Function} self
+ * @api public
+ */
+
+exports.validate = function(fn){
+  this.validators.push(fn);
+  return this;
+};
+
+/**
+ * Use the given plugin `fn()`.
+ *
+ * @param {Function} fn
+ * @return {Function} self
+ * @api public
+ */
+
+exports.use = function(fn){
+  fn(this);
+  return this;
+};
+
+/**
+ * Define attr with the given `name` and `options`.
+ *
+ * @param {String} name
+ * @param {Object} options
+ * @return {Function} self
+ * @api public
+ */
+
+exports.attr = function(name, options){
+  this.attrs[name] = options || {};
+
+  // implied pk
+  if ('_id' == name || 'id' == name) {
+    this.attrs[name].primaryKey = true;
+    this.primaryKey = name;
+  }
+
+  // getter / setter method
+  this.prototype[name] = function(val){
+    if (0 == arguments.length) return this.attrs[name];
+    var prev = this.attrs[name];
+    this.dirty[name] = val;
+    this.attrs[name] = val;
+    this.model.emit('change', this, name, val, prev);
+    this.model.emit('change ' + name, this, val, prev);
+    this.emit('change', name, val, prev);
+    this.emit('change ' + name, val, prev);
+    return this;
+  };
+
+  return this;
+};
+
+/**
+ * Remove all and invoke `fn(err)`.
+ *
+ * @param {Function} [fn]
+ * @api public
+ */
+
+exports.destroyAll = function(fn){
+  fn = fn || noop;
+  var self = this;
+  var url = this.url('');
+  this.request
+    .del(url)
+    .set(this._headers)
+    .end(function(res){
+      if (res.error) return fn(error(res), null, res);
+      fn(null, [], res);
+    });
+};
+
+/**
+ * Get all and invoke `fn(err, array)`.
+ *
+ * @param {Function} fn
+ * @api public
+ */
+
+exports.all = function(fn){
+  var self = this;
+  var url = this.url('');
+  this.request
+    .get(url)
+    .set(this._headers)
+    .end(function(res){
+      if (res.error) return fn(error(res), null, res);
+      var col = new Collection;
+      for (var i = 0, len = res.body.length; i < len; ++i) {
+        col.push(new self(res.body[i]));
+      }
+      fn(null, col, res);
+    });
+};
+
+/**
+ * Get `id` and invoke `fn(err, model)`.
+ *
+ * @param {Mixed} id
+ * @param {Function} fn
+ * @api public
+ */
+
+exports.get = function(id, fn){
+  var self = this;
+  var url = this.url(id);
+  this.request
+    .get(url)
+    .set(this._headers)
+    .end(function(res){
+      if (res.error) return fn(error(res), null, res);
+      var model = new self(res.body);
+      fn(null, model, res);
+    });
+};
+
+/**
+ * Response error helper.
+ *
+ * @param {Response} er
+ * @return {Error}
+ * @api private
+ */
+
+function error(res) {
+  return new Error('got ' + res.status + ' response');
+}
+
+}, {"collection":24,"superagent":18}],
+24: [function(require, module, exports) {
+
+try {
+  var Enumerable = require('enumerable');
+} catch (e) {
+  var Enumerable = require('enumerable-component');
+}
+
+/**
+ * Expose `Collection`.
+ */
+
+module.exports = Collection;
+
+/**
+ * Initialize a new collection with the given `models`.
+ *
+ * @param {Array} models
+ * @api public
+ */
+
+function Collection(models) {
+  this.models = models || [];
+}
+
+/**
+ * Mixin enumerable.
+ */
 
 Enumerable(Collection.prototype);
 
 /**
- * Request all items from localStorage
- * Implemented as async method so it's compatible with AJAX
- * 
- * @param {Function} done callback like: function (err, collection) {}
+ * Iterator implementation.
  */
-Collection.all = function (done) {
-	var items = window.localStorage.getItem('todos');
-	done(null, new Collection(items));
+
+Collection.prototype.__iterate__ = function(){
+  var self = this;
+  return {
+    length: function(){ return self.length() },
+    get: function(i){ return self.models[i] }
+  }
 };
 
-module.exports = Collection;
+/**
+ * Return the collection length.
+ *
+ * @return {Number}
+ * @api public
+ */
 
-}, {"component/enumerable":11,"/todo":8}],
-11: [function(require, module, exports) {
+Collection.prototype.length = function(){
+  return this.models.length;
+};
+
+/**
+ * Add `model` to the collection and return the index.
+ *
+ * @param {Object} model
+ * @return {Number}
+ * @api public
+ */
+
+Collection.prototype.push = function(model){
+  return this.models.push(model);
+};
+
+}, {"enumerable":25}],
+25: [function(require, module, exports) {
 
 /**
  * Module dependencies.
@@ -2053,8 +4505,8 @@ proto.value = function(){
 
 mixin(Enumerable.prototype);
 
-}, {"to-function":12,"isarray":13}],
-12: [function(require, module, exports) {
+}, {"to-function":26,"isarray":27}],
+26: [function(require, module, exports) {
 /**
  * Module Dependencies
  */
@@ -2184,98 +4636,47 @@ function get(str) {
   return str;
 }
 
-}, {"props":14,"component-props":14}],
-14: [function(require, module, exports) {
-/**
- * Global Names
- */
-
-var globals = /\b(this|Array|Date|Object|Math|JSON)\b/g;
-
-/**
- * Return immediate identifiers parsed from `str`.
- *
- * @param {String} str
- * @param {String|Function} map function or prefix
- * @return {Array}
- * @api public
- */
-
-module.exports = function(str, fn){
-  var p = unique(props(str));
-  if (fn && 'string' == typeof fn) fn = prefixed(fn);
-  if (fn) return map(str, p, fn);
-  return p;
-};
-
-/**
- * Return immediate identifiers in `str`.
- *
- * @param {String} str
- * @return {Array}
- * @api private
- */
-
-function props(str) {
-  return str
-    .replace(/\.\w+|\w+ *\(|"[^"]*"|'[^']*'|\/([^/]+)\//g, '')
-    .replace(globals, '')
-    .match(/[$a-zA-Z_]\w*/g)
-    || [];
-}
-
-/**
- * Return `str` with `props` mapped with `fn`.
- *
- * @param {String} str
- * @param {Array} props
- * @param {Function} fn
- * @return {String}
- * @api private
- */
-
-function map(str, props, fn) {
-  var re = /\.\w+|\w+ *\(|"[^"]*"|'[^']*'|\/([^/]+)\/|[a-zA-Z_]\w*/g;
-  return str.replace(re, function(_){
-    if ('(' == _[_.length - 1]) return fn(_);
-    if (!~props.indexOf(_)) return _;
-    return fn(_);
-  });
-}
-
-/**
- * Return unique array.
- *
- * @param {Array} arr
- * @return {Array}
- * @api private
- */
-
-function unique(arr) {
-  var ret = [];
-
-  for (var i = 0; i < arr.length; i++) {
-    if (~ret.indexOf(arr[i])) continue;
-    ret.push(arr[i]);
-  }
-
-  return ret;
-}
-
-/**
- * Map with prefix `str`.
- */
-
-function prefixed(str) {
-  return function(_){
-    return str + _;
-  };
-}
-
-}, {}],
-13: [function(require, module, exports) {
+}, {"props":21,"component-props":21}],
+27: [function(require, module, exports) {
 module.exports = Array.isArray || function (arr) {
   return Object.prototype.toString.call(arr) == '[object Array]';
 };
 
-}, {}]}, {}, {"1":""})
+}, {}],
+9: [function(require, module, exports) {
+/*jslint browser:true */
+
+var Enumerable = require('component/enumerable'),
+	Model = require('/todo').Model;
+
+function Collection(data) {
+	data = data || [];
+
+	data.forEach(function (item) {
+		this[item.order] = new Model(item);
+	}, this);
+}
+
+Enumerable(Collection.prototype);
+
+/**
+ * @param {Model} item
+ */
+Collection.prototype.add = function (item) {
+	this[item.order()] = new Model(item);
+};
+
+/**
+ * Request all items from localStorage
+ * Implemented as async method so it's compatible with AJAX
+ * 
+ * @param {Function} done callback like: function (err, collection) {}
+ */
+Collection.all = function (done) {
+	var items = window.localStorage.getItem('todos');
+	done(null, new Collection(items));
+};
+
+module.exports = Collection;
+
+}, {"component/enumerable":25,"/todo":8}]}, {}, {"1":""})

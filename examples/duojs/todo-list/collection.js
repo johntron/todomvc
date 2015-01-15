@@ -14,6 +14,13 @@ function Collection(data) {
 Enumerable(Collection.prototype);
 
 /**
+ * @param {Model} item
+ */
+Collection.prototype.add = function (item) {
+	this[item.order()] = new Model(item);
+};
+
+/**
  * Request all items from localStorage
  * Implemented as async method so it's compatible with AJAX
  * 
