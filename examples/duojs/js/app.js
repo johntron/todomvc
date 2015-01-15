@@ -855,16 +855,11 @@ function View(model) {
 }
 
 View.prototype.render = function() {
-    var $main = this.$el.querySelector('#main'),
-        $footer = this.$el.querySelector('#footer');
-
 	// Hide/show #main and #footer
-	if (this.model.length) {
-		classes($main).remove('hidden');
-		classes($footer).remove('hidden');
+	if (this.model.length()) {
+		this.show_chrome();
 	} else {
-		classes($main).add('hidden');
-		classes($footer).add('hidden');
+		this.hide_chrome();
 	}
 
 	// Add a view for each model
@@ -883,14 +878,26 @@ View.prototype.bind = function() {
 
 View.prototype.add_view = function (model) {
 	var view = new Todo.View(model),
-		$main = this.$el.querySelector('#main'),
 		$list = this.$el.querySelector('#todo-list');
 
 	view.render();
+	view.bind();
+	view.on('destroy', this.destroy_view.bind(this));
 	$list.appendChild(view.$el);
 
 	// If we just added a todo, the list cannot be empty
-	classes($main).remove('hidden');
+	this.show_chrome();
+};
+
+View.prototype.destroy_view = function (view, model) {
+	var $list = this.$el.querySelector('#todo-list');
+
+	$list.removeChild(view.$el);
+	this.model.remove(model);
+
+	if (!this.model.length()) {
+		this.hide_chrome();
+	}
 };
 
 View.prototype.add_handler = function(e) {
@@ -898,18 +905,38 @@ View.prototype.add_handler = function(e) {
 		return; // Short-circuit
 	}
 
-    var title = this.$el.querySelector('#new-todo').value.trim(),
+    var $input = this.$el.querySelector('#new-todo'),
+		title = $input.value.trim(),
 		data = {
             title: title,
-            order: Math.max(this.model.max('order'), 1),
+            order: this.model.next_order(),
             completed: false
         },
-        todo = new Todo.Model(data),
-		$input = this.$el.querySelector('#new-todo');
+        todo = new Todo.Model(data);
+
+	if (todo.title() === '') {
+		return; // Short-circuit
+	}
 
     this.model.add(todo);
 	this.add_view(todo);
 	$input.value = '';
+};
+
+View.prototype.show_chrome = function () {
+	var $main = this.$el.querySelector('#main'),
+		$footer = this.$el.querySelector('#footer');
+	
+	classes($main).remove('hidden');
+	classes($footer).remove('hidden');
+};
+
+View.prototype.hide_chrome = function () {
+	var $main = this.$el.querySelector('#main'),
+		$footer = this.$el.querySelector('#footer');
+	
+	classes($main).add('hidden');
+	classes($footer).add('hidden');
 };
 
 module.exports = {
@@ -1269,12 +1296,16 @@ exports.unbind = function(el, type, fn, capture){
 8: [function(require, module, exports) {
 var classes = require('component/classes'),
 	domify = require('component/domify'),
-	$template = domify(require('./template.html'));
+	$template = domify(require('./template.html')),
+	delegate = require('component/delegate'),
+	emitter = require('component/emitter');
 
 function View (model) {
 	this.model = model;
 	this.$el = $template.cloneNode(true); // Clone (deep) to avoid updating original $template
 }
+
+emitter(View.prototype);
 
 View.prototype.render = function () {
 	var $title = this.$el.querySelector('label');
@@ -1290,100 +1321,172 @@ View.prototype.render = function () {
 	return this.$el;
 };
 
+View.prototype.bind = function () {
+	delegate.bind(this.$el, '.toggle', 'change', this.toggle_completed.bind(this));
+	delegate.bind(this.$el, '.destroy', 'click', this.destroy.bind(this));
+};
+
+View.prototype.toggle_completed = function () {
+	var completed = !this.model.completed();
+
+	this.model.completed(completed);
+	this.render();
+};
+
+View.prototype.destroy = function () {
+	this.emit('destroy', this, this.model);
+};
+
 module.exports = {
 	View: View,
 	Model: require('./model.js')
 };
 
-}, {"component/classes":6,"component/domify":4,"./template.html":11,"./model.js":12}],
+}, {"component/classes":6,"component/domify":4,"./template.html":11,"component/delegate":12,"component/emitter":13,"./model.js":14}],
 11: [function(require, module, exports) {
 module.exports = '<li>\n    <div class="view">\n        <input class="toggle" type="checkbox">\n        <label></label>\n        <button class="destroy"></button>\n    </div>\n    <input class="edit" value="Rule the web">\n</li>\n';
 }, {}],
 12: [function(require, module, exports) {
-var model = require('component/model');
-
-var Todo = model('Todo');
-
-Todo.attr('order');
-Todo.attr('title');
-Todo.attr('completed');
-
-module.exports = Todo;
-
-}, {"component/model":13}],
-13: [function(require, module, exports) {
-
 /**
  * Module dependencies.
  */
 
-try {
-  var Emitter = require('emitter');
-} catch (e) {
-  var Emitter = require('component-emitter');
-}
-
-var proto = require('./proto');
-var statics = require('./static');
+var closest = require('closest')
+  , event = require('event');
 
 /**
- * Expose `createModel`.
- */
-
-module.exports = createModel;
-
-/**
- * Create a new model constructor with the given `name`.
+ * Delegate event `type` to `selector`
+ * and invoke `fn(e)`. A callback function
+ * is returned which may be passed to `.unbind()`.
  *
- * @param {String} name
+ * @param {Element} el
+ * @param {String} selector
+ * @param {String} type
+ * @param {Function} fn
+ * @param {Boolean} capture
  * @return {Function}
  * @api public
  */
 
-function createModel(name) {
-  if ('string' != typeof name) throw new TypeError('model name required');
+exports.bind = function(el, selector, type, fn, capture){
+  return event.bind(el, type, function(e){
+    var target = e.target || e.srcElement;
+    e.delegateTarget = closest(target, selector, true, el);
+    if (e.delegateTarget) fn.call(el, e);
+  }, capture);
+};
 
-  /**
-   * Initialize a new model with the given `attrs`.
-   *
-   * @param {Object} attrs
-   * @api public
-   */
+/**
+ * Unbind event `type`'s callback `fn`.
+ *
+ * @param {Element} el
+ * @param {String} type
+ * @param {Function} fn
+ * @param {Boolean} capture
+ * @api public
+ */
 
-  function model(attrs) {
-    if (!(this instanceof model)) return new model(attrs);
-    attrs = attrs || {};
-    this._callbacks = {};
-    this.attrs = attrs;
-    this.dirty = attrs;
-    this.model.emit('construct', this, attrs);
+exports.unbind = function(el, type, fn, capture){
+  event.unbind(el, type, fn, capture);
+};
+
+}, {"closest":15,"event":7}],
+15: [function(require, module, exports) {
+var matches = require('matches-selector')
+
+module.exports = function (element, selector, checkYoSelf, root) {
+  element = checkYoSelf ? {parentNode: element} : element
+
+  root = root || document
+
+  // Make sure `element !== document` and `element != null`
+  // otherwise we get an illegal invocation
+  while ((element = element.parentNode) && element !== document) {
+    if (matches(element, selector))
+      return element
+    // After `matches` on the edge case that
+    // the selector matches the root
+    // (when the root is not the document)
+    if (element === root)
+      return
   }
-
-  // mixin emitter
-
-  Emitter(model);
-
-  // statics
-
-  model.modelName = name;
-  model._base = '/' + name.toLowerCase() + 's';
-  model.attrs = {};
-  model.validators = [];
-  model._headers = {};
-  for (var key in statics) model[key] = statics[key];
-
-  // prototype
-
-  model.prototype = {};
-  model.prototype.model = model;
-  for (var key in proto) model.prototype[key] = proto[key];
-
-  return model;
 }
 
+}, {"matches-selector":16}],
+16: [function(require, module, exports) {
+/**
+ * Module dependencies.
+ */
 
-}, {"emitter":14,"component-emitter":14,"./proto":15,"./static":16}],
-14: [function(require, module, exports) {
+var query = require('query');
+
+/**
+ * Element prototype.
+ */
+
+var proto = Element.prototype;
+
+/**
+ * Vendor function.
+ */
+
+var vendor = proto.matches
+  || proto.webkitMatchesSelector
+  || proto.mozMatchesSelector
+  || proto.msMatchesSelector
+  || proto.oMatchesSelector;
+
+/**
+ * Expose `match()`.
+ */
+
+module.exports = match;
+
+/**
+ * Match `el` to `selector`.
+ *
+ * @param {Element} el
+ * @param {String} selector
+ * @return {Boolean}
+ * @api public
+ */
+
+function match(el, selector) {
+  if (!el || el.nodeType !== 1) return false;
+  if (vendor) return vendor.call(el, selector);
+  var nodes = query.all(selector, el.parentNode);
+  for (var i = 0; i < nodes.length; ++i) {
+    if (nodes[i] == el) return true;
+  }
+  return false;
+}
+
+}, {"query":17}],
+17: [function(require, module, exports) {
+function one(selector, el) {
+  return el.querySelector(selector);
+}
+
+exports = module.exports = function(selector, el){
+  el = el || document;
+  return one(selector, el);
+};
+
+exports.all = function(selector, el){
+  el = el || document;
+  return el.querySelectorAll(selector);
+};
+
+exports.engine = function(obj){
+  if (!obj.one) throw new Error('.one callback required');
+  if (!obj.all) throw new Error('.all callback required');
+  one = obj.one;
+  exports.all = obj.all;
+  return exports;
+};
+
+}, {}],
+13: [function(require, module, exports) {
 
 /**
  * Expose `Emitter`.
@@ -1550,7 +1653,258 @@ Emitter.prototype.hasListeners = function(event){
 };
 
 }, {}],
-15: [function(require, module, exports) {
+14: [function(require, module, exports) {
+var model = require('component/model');
+
+var Todo = model('Todo');
+
+Todo.attr('order');
+Todo.attr('title');
+Todo.attr('completed');
+
+module.exports = Todo;
+
+}, {"component/model":18}],
+18: [function(require, module, exports) {
+
+/**
+ * Module dependencies.
+ */
+
+try {
+  var Emitter = require('emitter');
+} catch (e) {
+  var Emitter = require('component-emitter');
+}
+
+var proto = require('./proto');
+var statics = require('./static');
+
+/**
+ * Expose `createModel`.
+ */
+
+module.exports = createModel;
+
+/**
+ * Create a new model constructor with the given `name`.
+ *
+ * @param {String} name
+ * @return {Function}
+ * @api public
+ */
+
+function createModel(name) {
+  if ('string' != typeof name) throw new TypeError('model name required');
+
+  /**
+   * Initialize a new model with the given `attrs`.
+   *
+   * @param {Object} attrs
+   * @api public
+   */
+
+  function model(attrs) {
+    if (!(this instanceof model)) return new model(attrs);
+    attrs = attrs || {};
+    this._callbacks = {};
+    this.attrs = attrs;
+    this.dirty = attrs;
+    this.model.emit('construct', this, attrs);
+  }
+
+  // mixin emitter
+
+  Emitter(model);
+
+  // statics
+
+  model.modelName = name;
+  model._base = '/' + name.toLowerCase() + 's';
+  model.attrs = {};
+  model.validators = [];
+  model._headers = {};
+  for (var key in statics) model[key] = statics[key];
+
+  // prototype
+
+  model.prototype = {};
+  model.prototype.model = model;
+  for (var key in proto) model.prototype[key] = proto[key];
+
+  return model;
+}
+
+
+}, {"emitter":19,"component-emitter":19,"./proto":20,"./static":21}],
+19: [function(require, module, exports) {
+
+/**
+ * Expose `Emitter`.
+ */
+
+module.exports = Emitter;
+
+/**
+ * Initialize a new `Emitter`.
+ *
+ * @api public
+ */
+
+function Emitter(obj) {
+  if (obj) return mixin(obj);
+};
+
+/**
+ * Mixin the emitter properties.
+ *
+ * @param {Object} obj
+ * @return {Object}
+ * @api private
+ */
+
+function mixin(obj) {
+  for (var key in Emitter.prototype) {
+    obj[key] = Emitter.prototype[key];
+  }
+  return obj;
+}
+
+/**
+ * Listen on the given `event` with `fn`.
+ *
+ * @param {String} event
+ * @param {Function} fn
+ * @return {Emitter}
+ * @api public
+ */
+
+Emitter.prototype.on =
+Emitter.prototype.addEventListener = function(event, fn){
+  this._callbacks = this._callbacks || {};
+  (this._callbacks[event] = this._callbacks[event] || [])
+    .push(fn);
+  return this;
+};
+
+/**
+ * Adds an `event` listener that will be invoked a single
+ * time then automatically removed.
+ *
+ * @param {String} event
+ * @param {Function} fn
+ * @return {Emitter}
+ * @api public
+ */
+
+Emitter.prototype.once = function(event, fn){
+  var self = this;
+  this._callbacks = this._callbacks || {};
+
+  function on() {
+    self.off(event, on);
+    fn.apply(this, arguments);
+  }
+
+  on.fn = fn;
+  this.on(event, on);
+  return this;
+};
+
+/**
+ * Remove the given callback for `event` or all
+ * registered callbacks.
+ *
+ * @param {String} event
+ * @param {Function} fn
+ * @return {Emitter}
+ * @api public
+ */
+
+Emitter.prototype.off =
+Emitter.prototype.removeListener =
+Emitter.prototype.removeAllListeners =
+Emitter.prototype.removeEventListener = function(event, fn){
+  this._callbacks = this._callbacks || {};
+
+  // all
+  if (0 == arguments.length) {
+    this._callbacks = {};
+    return this;
+  }
+
+  // specific event
+  var callbacks = this._callbacks[event];
+  if (!callbacks) return this;
+
+  // remove all handlers
+  if (1 == arguments.length) {
+    delete this._callbacks[event];
+    return this;
+  }
+
+  // remove specific handler
+  var cb;
+  for (var i = 0; i < callbacks.length; i++) {
+    cb = callbacks[i];
+    if (cb === fn || cb.fn === fn) {
+      callbacks.splice(i, 1);
+      break;
+    }
+  }
+  return this;
+};
+
+/**
+ * Emit `event` with the given args.
+ *
+ * @param {String} event
+ * @param {Mixed} ...
+ * @return {Emitter}
+ */
+
+Emitter.prototype.emit = function(event){
+  this._callbacks = this._callbacks || {};
+  var args = [].slice.call(arguments, 1)
+    , callbacks = this._callbacks[event];
+
+  if (callbacks) {
+    callbacks = callbacks.slice(0);
+    for (var i = 0, len = callbacks.length; i < len; ++i) {
+      callbacks[i].apply(this, args);
+    }
+  }
+
+  return this;
+};
+
+/**
+ * Return array of callbacks for `event`.
+ *
+ * @param {String} event
+ * @return {Array}
+ * @api public
+ */
+
+Emitter.prototype.listeners = function(event){
+  this._callbacks = this._callbacks || {};
+  return this._callbacks[event] || [];
+};
+
+/**
+ * Check if this emitter has `event` handlers.
+ *
+ * @param {String} event
+ * @return {Boolean}
+ * @api public
+ */
+
+Emitter.prototype.hasListeners = function(event){
+  return !! this.listeners(event).length;
+};
+
+}, {}],
+20: [function(require, module, exports) {
 
 /**
  * Module dependencies.
@@ -1852,8 +2206,8 @@ function error(res) {
   return new Error('got ' + res.status + ' response');
 }
 
-}, {"emitter":14,"each":17,"component-emitter":14,"component-each":17,"superagent":18}],
-17: [function(require, module, exports) {
+}, {"emitter":19,"each":22,"component-emitter":19,"component-each":22,"superagent":23}],
+22: [function(require, module, exports) {
 
 /**
  * Module dependencies.
@@ -1939,8 +2293,8 @@ function array(obj, fn, ctx) {
   }
 }
 
-}, {"type":19,"to-function":20}],
-19: [function(require, module, exports) {
+}, {"type":24,"to-function":25}],
+24: [function(require, module, exports) {
 
 /**
  * toString ref.
@@ -1975,7 +2329,7 @@ module.exports = function(val){
 };
 
 }, {}],
-20: [function(require, module, exports) {
+25: [function(require, module, exports) {
 
 /**
  * Module Dependencies
@@ -2129,8 +2483,8 @@ function stripNested (prop, str, val) {
   });
 }
 
-}, {"props":21,"component-props":21}],
-21: [function(require, module, exports) {
+}, {"props":26,"component-props":26}],
+26: [function(require, module, exports) {
 /**
  * Global Names
  */
@@ -2218,7 +2572,7 @@ function prefixed(str) {
 }
 
 }, {}],
-18: [function(require, module, exports) {
+23: [function(require, module, exports) {
 /**
  * Module dependencies.
  */
@@ -3269,175 +3623,8 @@ request.put = function(url, data, fn){
 
 module.exports = request;
 
-}, {"emitter":22,"reduce":23}],
-22: [function(require, module, exports) {
-
-/**
- * Expose `Emitter`.
- */
-
-module.exports = Emitter;
-
-/**
- * Initialize a new `Emitter`.
- *
- * @api public
- */
-
-function Emitter(obj) {
-  if (obj) return mixin(obj);
-};
-
-/**
- * Mixin the emitter properties.
- *
- * @param {Object} obj
- * @return {Object}
- * @api private
- */
-
-function mixin(obj) {
-  for (var key in Emitter.prototype) {
-    obj[key] = Emitter.prototype[key];
-  }
-  return obj;
-}
-
-/**
- * Listen on the given `event` with `fn`.
- *
- * @param {String} event
- * @param {Function} fn
- * @return {Emitter}
- * @api public
- */
-
-Emitter.prototype.on =
-Emitter.prototype.addEventListener = function(event, fn){
-  this._callbacks = this._callbacks || {};
-  (this._callbacks[event] = this._callbacks[event] || [])
-    .push(fn);
-  return this;
-};
-
-/**
- * Adds an `event` listener that will be invoked a single
- * time then automatically removed.
- *
- * @param {String} event
- * @param {Function} fn
- * @return {Emitter}
- * @api public
- */
-
-Emitter.prototype.once = function(event, fn){
-  var self = this;
-  this._callbacks = this._callbacks || {};
-
-  function on() {
-    self.off(event, on);
-    fn.apply(this, arguments);
-  }
-
-  on.fn = fn;
-  this.on(event, on);
-  return this;
-};
-
-/**
- * Remove the given callback for `event` or all
- * registered callbacks.
- *
- * @param {String} event
- * @param {Function} fn
- * @return {Emitter}
- * @api public
- */
-
-Emitter.prototype.off =
-Emitter.prototype.removeListener =
-Emitter.prototype.removeAllListeners =
-Emitter.prototype.removeEventListener = function(event, fn){
-  this._callbacks = this._callbacks || {};
-
-  // all
-  if (0 == arguments.length) {
-    this._callbacks = {};
-    return this;
-  }
-
-  // specific event
-  var callbacks = this._callbacks[event];
-  if (!callbacks) return this;
-
-  // remove all handlers
-  if (1 == arguments.length) {
-    delete this._callbacks[event];
-    return this;
-  }
-
-  // remove specific handler
-  var cb;
-  for (var i = 0; i < callbacks.length; i++) {
-    cb = callbacks[i];
-    if (cb === fn || cb.fn === fn) {
-      callbacks.splice(i, 1);
-      break;
-    }
-  }
-  return this;
-};
-
-/**
- * Emit `event` with the given args.
- *
- * @param {String} event
- * @param {Mixed} ...
- * @return {Emitter}
- */
-
-Emitter.prototype.emit = function(event){
-  this._callbacks = this._callbacks || {};
-  var args = [].slice.call(arguments, 1)
-    , callbacks = this._callbacks[event];
-
-  if (callbacks) {
-    callbacks = callbacks.slice(0);
-    for (var i = 0, len = callbacks.length; i < len; ++i) {
-      callbacks[i].apply(this, args);
-    }
-  }
-
-  return this;
-};
-
-/**
- * Return array of callbacks for `event`.
- *
- * @param {String} event
- * @return {Array}
- * @api public
- */
-
-Emitter.prototype.listeners = function(event){
-  this._callbacks = this._callbacks || {};
-  return this._callbacks[event] || [];
-};
-
-/**
- * Check if this emitter has `event` handlers.
- *
- * @param {String} event
- * @return {Boolean}
- * @api public
- */
-
-Emitter.prototype.hasListeners = function(event){
-  return !! this.listeners(event).length;
-};
-
-}, {}],
-23: [function(require, module, exports) {
+}, {"emitter":13,"reduce":27}],
+27: [function(require, module, exports) {
 
 /**
  * Reduce `arr` with `fn`.
@@ -3463,7 +3650,7 @@ module.exports = function(arr, fn, initial){
   return curr;
 };
 }, {}],
-16: [function(require, module, exports) {
+21: [function(require, module, exports) {
 /**
  * Module dependencies.
  */
@@ -3674,8 +3861,8 @@ function error(res) {
   return new Error('got ' + res.status + ' response');
 }
 
-}, {"collection":24,"superagent":18}],
-24: [function(require, module, exports) {
+}, {"collection":28,"superagent":23}],
+28: [function(require, module, exports) {
 
 try {
   var Enumerable = require('enumerable');
@@ -3741,8 +3928,8 @@ Collection.prototype.push = function(model){
   return this.models.push(model);
 };
 
-}, {"enumerable":25}],
-25: [function(require, module, exports) {
+}, {"enumerable":29}],
+29: [function(require, module, exports) {
 
 /**
  * Module dependencies.
@@ -4505,8 +4692,8 @@ proto.value = function(){
 
 mixin(Enumerable.prototype);
 
-}, {"to-function":26,"isarray":27}],
-26: [function(require, module, exports) {
+}, {"to-function":30,"isarray":31}],
+30: [function(require, module, exports) {
 /**
  * Module Dependencies
  */
@@ -4636,8 +4823,8 @@ function get(str) {
   return str;
 }
 
-}, {"props":21,"component-props":21}],
-27: [function(require, module, exports) {
+}, {"props":26,"component-props":26}],
+31: [function(require, module, exports) {
 module.exports = Array.isArray || function (arr) {
   return Object.prototype.toString.call(arr) == '[object Array]';
 };
@@ -4650,20 +4837,46 @@ var Enumerable = require('component/enumerable'),
 	Model = require('/todo').Model;
 
 function Collection(data) {
-	data = data || [];
-
-	data.forEach(function (item) {
-		this[item.order] = new Model(item);
-	}, this);
+	this.items = data || [];
 }
 
 Enumerable(Collection.prototype);
+
+Collection.prototype.__iterate__ = function () {
+	var self = this;
+
+	return {
+		length: function () { return self.items.length; },
+		get: function (i) { return self.items[i]; }
+	};
+};
+
+Collection.prototype.length = function () {
+	return this.items.length;
+};
+
+Collection.prototype.next_order = function () {
+	var max = this.max(function (item) {
+		return item.order();
+	});
+
+	max = Math.max(max, 0);
+	return max + 1;
+};
 
 /**
  * @param {Model} item
  */
 Collection.prototype.add = function (item) {
-	this[item.order()] = new Model(item);
+	this.items.push(item);
+};
+
+/**
+ * @param {Model} item
+ */
+Collection.prototype.remove = function (item) {
+	var index = this.indexOf(item);
+	this.items.splice(index);
 };
 
 /**
@@ -4679,4 +4892,4 @@ Collection.all = function (done) {
 
 module.exports = Collection;
 
-}, {"component/enumerable":25,"/todo":8}]}, {}, {"1":""})
+}, {"component/enumerable":29,"/todo":8}]}, {}, {"1":""})

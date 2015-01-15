@@ -11,16 +11,11 @@ function View(model) {
 }
 
 View.prototype.render = function() {
-    var $main = this.$el.querySelector('#main'),
-        $footer = this.$el.querySelector('#footer');
-
 	// Hide/show #main and #footer
-	if (this.model.length) {
-		classes($main).remove('hidden');
-		classes($footer).remove('hidden');
+	if (this.model.length()) {
+		this.show_chrome();
 	} else {
-		classes($main).add('hidden');
-		classes($footer).add('hidden');
+		this.hide_chrome();
 	}
 
 	// Add a view for each model
@@ -39,14 +34,26 @@ View.prototype.bind = function() {
 
 View.prototype.add_view = function (model) {
 	var view = new Todo.View(model),
-		$main = this.$el.querySelector('#main'),
 		$list = this.$el.querySelector('#todo-list');
 
 	view.render();
+	view.bind();
+	view.on('destroy', this.destroy_view.bind(this));
 	$list.appendChild(view.$el);
 
 	// If we just added a todo, the list cannot be empty
-	classes($main).remove('hidden');
+	this.show_chrome();
+};
+
+View.prototype.destroy_view = function (view, model) {
+	var $list = this.$el.querySelector('#todo-list');
+
+	$list.removeChild(view.$el);
+	this.model.remove(model);
+
+	if (!this.model.length()) {
+		this.hide_chrome();
+	}
 };
 
 View.prototype.add_handler = function(e) {
@@ -54,18 +61,38 @@ View.prototype.add_handler = function(e) {
 		return; // Short-circuit
 	}
 
-    var title = this.$el.querySelector('#new-todo').value.trim(),
+    var $input = this.$el.querySelector('#new-todo'),
+		title = $input.value.trim(),
 		data = {
             title: title,
-            order: Math.max(this.model.max('order'), 1),
+            order: this.model.next_order(),
             completed: false
         },
-        todo = new Todo.Model(data),
-		$input = this.$el.querySelector('#new-todo');
+        todo = new Todo.Model(data);
+
+	if (todo.title() === '') {
+		return; // Short-circuit
+	}
 
     this.model.add(todo);
 	this.add_view(todo);
 	$input.value = '';
+};
+
+View.prototype.show_chrome = function () {
+	var $main = this.$el.querySelector('#main'),
+		$footer = this.$el.querySelector('#footer');
+	
+	classes($main).remove('hidden');
+	classes($footer).remove('hidden');
+};
+
+View.prototype.hide_chrome = function () {
+	var $main = this.$el.querySelector('#main'),
+		$footer = this.$el.querySelector('#footer');
+	
+	classes($main).add('hidden');
+	classes($footer).add('hidden');
 };
 
 module.exports = {
