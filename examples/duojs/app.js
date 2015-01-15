@@ -1,3 +1,5 @@
+/*jslint browser:true */
+
 var Router = require('flatiron/director:build/director.js').Router,
     routes, router,
 	TodoList = require('./todo-list');
@@ -5,10 +7,18 @@ var Router = require('flatiron/director:build/director.js').Router,
 routes = {
     '/': {
 		on: function () {
-			var $list = document.querySelector('#todoapp'),
-				list = new TodoList($list);
+			TodoList.Collection.all(function (err, todos) {
+				if (err) {
+					console.error(err);
+					return; // Short-circuit
+				}
 
-			list.render();
+				var list = new TodoList.View(todos),
+					$footer = document.querySelector('footer');
+
+				list.render();
+				document.body.insertBefore(list.$el, $footer);
+			});
 		}
 	},
 	'/active': {},

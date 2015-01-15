@@ -26,12 +26,20 @@ _If you have other helpful links to share, or find any of the links above no lon
 
 Duo makes it easy to use best-in-class CommonJS modules in the browser. Include the libraries you're most familiar with directly from:
 
-* Github
+* Github - if there's an `exports = ...`, you can use `require('author/repository:module.js')`
 * The official [duojs](https://github.com/duojs) organization
-* [component.github.io](http://component.github.io/)
+* The [component](https://github.com/component) organization
+* The [Component registry](http://component.github.io/)
 * [npmjs.org](https://www.npmjs.com/)
 * [microjs.com](http://microjs.com/)
 
+The only design decisions Duo imposes are in dependency/package management and the build system; You can use any MV* pattern you'd like (or something completely different). For demonstration purposes, this example follows Backbone's convention:
+
+* Models - responsible for data CRUD operations
+* Views - like Controllers in the MVC pattern; business logic between what the user sees and the data
+* HTML templates
+
+Each set of Models, Views, and templates related to a single UI component are grouped together as a module under its own directory (e.g. `/todo-list` and `/todo`).
 
 ## Running
 

@@ -83,6 +83,8 @@
    return require;
 })({
 1: [function(require, module, exports) {
+/*jslint browser:true */
+
 var Router = require('flatiron/director:build/director.js').Router,
     routes, router,
 	TodoList = require('./todo-list');
@@ -90,10 +92,18 @@ var Router = require('flatiron/director:build/director.js').Router,
 routes = {
     '/': {
 		on: function () {
-			var $list = document.querySelector('#todoapp'),
-				list = new TodoList($list);
+			TodoList.Collection.all(function (err, todos) {
+				if (err) {
+					console.error(err);
+					return; // Short-circuit
+				}
 
-			list.render();
+				var list = new TodoList.View(todos),
+					$footer = document.querySelector('footer');
+
+				list.render();
+				document.body.insertBefore(list.$el, $footer);
+			});
 		}
 	},
 	'/active': {},
@@ -832,24 +842,184 @@ Router.prototype.mount = function(routes, path) {
 }(typeof exports === "object" ? exports : window));
 }, {}],
 3: [function(require, module, exports) {
-var classes = require('component/classes');
+var domify = require('component/domify'),
+    $template = domify(require('./template.html')),
+    classes = require('component/classes'),
+    event = require('component/event'),
+	Todo = require('/todo'); // From build root (example/duojs)
 
-function TodoList($el) {
-	this.$el = $el;
+function View(model) {
+    this.model = model;
+    this.$el = $template.cloneNode(true); // Clone (deep) to avoid updating original $template
 }
 
-TodoList.prototype.render = function () {
-	var $main = this.$el.querySelector('#main'),
-		$footer = this.$el.querySelector('#footer');
+View.prototype.render = function() {
+    var $main = this.$el.querySelector('#main'),
+        $footer = this.$el.querySelector('#footer');
 
-	classes($main).add('hidden');
-	classes($footer).add('hidden');
+	// Hide/show #main and #footer
+	if (this.model.length) {
+		classes($main).remove('hidden');
+		classes($footer).remove('hidden');
+	} else {
+		classes($main).add('hidden');
+		classes($footer).add('hidden');
+	}
+
+	// Add a view for each model
+	this.model.forEach(this.add_view.bind(this));
+
+	this.bind(); // If you ever need to unbind, remove this line, add an .unbind(), and call .bind()/.unbind() explicitly from outer conext
+
+    return this.$el;
 };
 
-module.exports = TodoList;
+View.prototype.bind = function() {
+    var $new_todo = this.$el.querySelector('#new-todo');
 
-}, {"component/classes":4}],
+    event.bind($new_todo, 'keyup', this.add_handler.bind(this));
+};
+
+View.prototype.add_view = function (model) {
+	var view = new Todo.View(model),
+		$list = this.$el.querySelector('#todo-list');
+
+	view.render();
+	$list.appendChild(view.$el);
+};
+
+View.prototype.add_handler = function() {
+    var data = {
+            title: this.$el.querySelector('#new-todo').value,
+            order: this.model.max('order'),
+            completed: false
+        },
+        todo = new Todo.Model(data);
+
+    this.model.add(todo);
+	this.add(todo);
+};
+
+module.exports = {
+	View: View,
+	Collection: require('./collection.js')
+};
+
+}, {"component/domify":4,"./template.html":5,"component/classes":6,"component/event":7,"/todo":8,"./collection.js":9}],
 4: [function(require, module, exports) {
+
+/**
+ * Expose `parse`.
+ */
+
+module.exports = parse;
+
+/**
+ * Tests for browser support.
+ */
+
+var div = document.createElement('div');
+// Setup
+div.innerHTML = '  <link/><table></table><a href="/a">a</a><input type="checkbox"/>';
+// Make sure that link elements get serialized correctly by innerHTML
+// This requires a wrapper element in IE
+var innerHTMLBug = !div.getElementsByTagName('link').length;
+div = undefined;
+
+/**
+ * Wrap map from jquery.
+ */
+
+var map = {
+  legend: [1, '<fieldset>', '</fieldset>'],
+  tr: [2, '<table><tbody>', '</tbody></table>'],
+  col: [2, '<table><tbody></tbody><colgroup>', '</colgroup></table>'],
+  // for script/link/style tags to work in IE6-8, you have to wrap
+  // in a div with a non-whitespace character in front, ha!
+  _default: innerHTMLBug ? [1, 'X<div>', '</div>'] : [0, '', '']
+};
+
+map.td =
+map.th = [3, '<table><tbody><tr>', '</tr></tbody></table>'];
+
+map.option =
+map.optgroup = [1, '<select multiple="multiple">', '</select>'];
+
+map.thead =
+map.tbody =
+map.colgroup =
+map.caption =
+map.tfoot = [1, '<table>', '</table>'];
+
+map.text =
+map.circle =
+map.ellipse =
+map.line =
+map.path =
+map.polygon =
+map.polyline =
+map.rect = [1, '<svg xmlns="http://www.w3.org/2000/svg" version="1.1">','</svg>'];
+
+/**
+ * Parse `html` and return a DOM Node instance, which could be a TextNode,
+ * HTML DOM Node of some kind (<div> for example), or a DocumentFragment
+ * instance, depending on the contents of the `html` string.
+ *
+ * @param {String} html - HTML string to "domify"
+ * @param {Document} doc - The `document` instance to create the Node for
+ * @return {DOMNode} the TextNode, DOM Node, or DocumentFragment instance
+ * @api private
+ */
+
+function parse(html, doc) {
+  if ('string' != typeof html) throw new TypeError('String expected');
+
+  // default to the global `document` object
+  if (!doc) doc = document;
+
+  // tag name
+  var m = /<([\w:]+)/.exec(html);
+  if (!m) return doc.createTextNode(html);
+
+  html = html.replace(/^\s+|\s+$/g, ''); // Remove leading/trailing whitespace
+
+  var tag = m[1];
+
+  // body support
+  if (tag == 'body') {
+    var el = doc.createElement('html');
+    el.innerHTML = html;
+    return el.removeChild(el.lastChild);
+  }
+
+  // wrap map
+  var wrap = map[tag] || map._default;
+  var depth = wrap[0];
+  var prefix = wrap[1];
+  var suffix = wrap[2];
+  var el = doc.createElement('div');
+  el.innerHTML = prefix + html + suffix;
+  while (depth--) el = el.lastChild;
+
+  // one element
+  if (el.firstChild == el.lastChild) {
+    return el.removeChild(el.firstChild);
+  }
+
+  // several elements
+  var fragment = doc.createDocumentFragment();
+  while (el.firstChild) {
+    fragment.appendChild(el.removeChild(el.firstChild));
+  }
+
+  return fragment;
+}
+
+}, {}],
+5: [function(require, module, exports) {
+module.exports = '<section id="todoapp">\n    <header id="header">\n        <h1>todos</h1>\n        <input id="new-todo" placeholder="What needs to be done?" autofocus>\n    </header>\n    <!-- This section should be hidden by default and shown when there are todos -->\n    <section id="main">\n        <input id="toggle-all" type="checkbox">\n        <label for="toggle-all">Mark all as complete</label>\n        <ul id="todo-list">\n            <!-- These are here just to show the structure of the list items -->\n            <!-- List items should get the class `editing` when editing and `completed` when marked as completed -->\n            <li class="completed">\n                <div class="view">\n                    <input class="toggle" type="checkbox" checked>\n                    <label>Create a TodoMVC template</label>\n                    <button class="destroy"></button>\n                </div>\n                <input class="edit" value="Create a TodoMVC template">\n            </li>\n            <li>\n                <div class="view">\n                    <input class="toggle" type="checkbox">\n                    <label>Rule the web</label>\n                    <button class="destroy"></button>\n                </div>\n                <input class="edit" value="Rule the web">\n            </li>\n        </ul>\n    </section>\n    <!-- This footer should hidden by default and shown when there are todos -->\n    <footer id="footer">\n        <!-- This should be `0 items left` by default -->\n        <span id="todo-count"><strong>1</strong> item left</span>\n        <!-- Remove this if you don\'t implement routing -->\n        <ul id="filters">\n            <li>\n                <a class="selected" href="#/">All</a>\n            </li>\n            <li>\n                <a href="#/active">Active</a>\n            </li>\n            <li>\n                <a href="#/completed">Completed</a>\n            </li>\n        </ul>\n        <!-- Hidden if no completed items are left ↓ -->\n        <button id="clear-completed">Clear completed (1)</button>\n    </footer>\n</section>\n';
+}, {}],
+6: [function(require, module, exports) {
 /**
  * Module dependencies.
  */
@@ -1037,8 +1207,8 @@ ClassList.prototype.contains = function(name){
     : !! ~index(this.array(), name);
 };
 
-}, {"indexof":5}],
-5: [function(require, module, exports) {
+}, {"indexof":10}],
+10: [function(require, module, exports) {
 module.exports = function(arr, obj){
   if (arr.indexOf) return arr.indexOf(obj);
   for (var i = 0; i < arr.length; ++i) {
@@ -1046,4 +1216,1066 @@ module.exports = function(arr, obj){
   }
   return -1;
 };
+}, {}],
+7: [function(require, module, exports) {
+var bind = window.addEventListener ? 'addEventListener' : 'attachEvent',
+    unbind = window.removeEventListener ? 'removeEventListener' : 'detachEvent',
+    prefix = bind !== 'addEventListener' ? 'on' : '';
+
+/**
+ * Bind `el` event `type` to `fn`.
+ *
+ * @param {Element} el
+ * @param {String} type
+ * @param {Function} fn
+ * @param {Boolean} capture
+ * @return {Function}
+ * @api public
+ */
+
+exports.bind = function(el, type, fn, capture){
+  el[bind](prefix + type, fn, capture || false);
+  return fn;
+};
+
+/**
+ * Unbind `el` event `type`'s callback `fn`.
+ *
+ * @param {Element} el
+ * @param {String} type
+ * @param {Function} fn
+ * @param {Boolean} capture
+ * @return {Function}
+ * @api public
+ */
+
+exports.unbind = function(el, type, fn, capture){
+  el[unbind](prefix + type, fn, capture || false);
+  return fn;
+};
+}, {}],
+8: [function(require, module, exports) {
+module.exports = function Todo () {
+	console.log('hello world');
+};
+
+}, {}],
+9: [function(require, module, exports) {
+/*jslint browser:true */
+
+var Enumerable = require('component/enumerable'),
+	Model = require('/todo').Model;
+
+function Collection(data) {
+	data = data || [];
+
+	data.forEach(function (item) {
+		this[item.order] = new Model(item);
+	}, this);
+}
+
+Enumerable(Collection.prototype);
+
+/**
+ * Request all items from localStorage
+ * Implemented as async method so it's compatible with AJAX
+ * 
+ * @param {Function} done callback like: function (err, collection) {}
+ */
+Collection.all = function (done) {
+	var items = window.localStorage.getItem('todos');
+	done(null, new Collection(items));
+};
+
+module.exports = Collection;
+
+}, {"component/enumerable":11,"/todo":8}],
+11: [function(require, module, exports) {
+
+/**
+ * Module dependencies.
+ */
+
+var toFunction = require('to-function')
+  , isArray = require("isarray")
+  , proto = {};
+
+/**
+ * Expose `Enumerable`.
+ */
+
+module.exports = Enumerable;
+
+/**
+ * Mixin to `obj`.
+ *
+ *    var Enumerable = require('enumerable');
+ *    Enumerable(Something.prototype);
+ *
+ * @param {Object} obj
+ * @return {Object} obj
+ */
+
+function mixin(obj){
+  for (var key in proto) obj[key] = proto[key];
+  obj.__iterate__ = obj.__iterate__ || defaultIterator;
+  return obj;
+}
+
+/**
+ * Initialize a new `Enumerable` with the given `obj`.
+ *
+ * @param {Object} obj
+ * @api private
+ */
+
+function Enumerable(obj) {
+  if (!(this instanceof Enumerable)) {
+    if (isArray(obj)) return new Enumerable(obj);
+    return mixin(obj);
+  }
+  this.obj = obj;
+}
+
+/*!
+ * Default iterator utilizing `.length` and subscripts.
+ */
+
+function defaultIterator() {
+  var self = this;
+  return {
+    length: function(){ return self.length },
+    get: function(i){ return self[i] }
+  }
+}
+
+/**
+ * Return a string representation of this enumerable.
+ *
+ *    [Enumerable [1,2,3]]
+ *
+ * @return {String}
+ * @api public
+ */
+
+Enumerable.prototype.inspect =
+Enumerable.prototype.toString = function(){
+  return '[Enumerable ' + JSON.stringify(this.obj) + ']';
+};
+
+/**
+ * Iterate enumerable.
+ *
+ * @return {Object}
+ * @api private
+ */
+
+Enumerable.prototype.__iterate__ = function(){
+  var obj = this.obj;
+  obj.__iterate__ = obj.__iterate__ || defaultIterator;
+  return obj.__iterate__();
+};
+
+/**
+ * Iterate each value and invoke `fn(val, i)`.
+ *
+ *    users.each(function(val, i){
+ *
+ *    })
+ *
+ * @param {Function} fn
+ * @return {Object} self
+ * @api public
+ */
+
+proto.forEach =
+proto.each = function(fn){
+  var vals = this.__iterate__();
+  var len = vals.length();
+  for (var i = 0; i < len; ++i) {
+    fn(vals.get(i), i);
+  }
+  return this;
+};
+
+/**
+ * Map each return value from `fn(val, i)`.
+ *
+ * Passing a callback function:
+ *
+ *    users.map(function(user){
+ *      return user.name.first
+ *    })
+ *
+ * Passing a property string:
+ *
+ *    users.map('name.first')
+ *
+ * @param {Function} fn
+ * @return {Enumerable}
+ * @api public
+ */
+
+proto.map = function(fn){
+  fn = toFunction(fn);
+  var vals = this.__iterate__();
+  var len = vals.length();
+  var arr = [];
+  for (var i = 0; i < len; ++i) {
+    arr.push(fn(vals.get(i), i));
+  }
+  return new Enumerable(arr);
+};
+
+/**
+ * Select all values that return a truthy value of `fn(val, i)`.
+ *
+ *    users.select(function(user){
+ *      return user.age > 20
+ *    })
+ *
+ *  With a property:
+ *
+ *    items.select('complete')
+ *
+ * @param {Function|String} fn
+ * @return {Enumerable}
+ * @api public
+ */
+
+proto.filter =
+proto.select = function(fn){
+  fn = toFunction(fn);
+  var val;
+  var arr = [];
+  var vals = this.__iterate__();
+  var len = vals.length();
+  for (var i = 0; i < len; ++i) {
+    val = vals.get(i);
+    if (fn(val, i)) arr.push(val);
+  }
+  return new Enumerable(arr);
+};
+
+/**
+ * Select all unique values.
+ *
+ *    nums.unique()
+ *
+ * @return {Enumerable}
+ * @api public
+ */
+
+proto.unique = function(){
+  var val;
+  var arr = [];
+  var vals = this.__iterate__();
+  var len = vals.length();
+  for (var i = 0; i < len; ++i) {
+    val = vals.get(i);
+    if (~arr.indexOf(val)) continue;
+    arr.push(val);
+  }
+  return new Enumerable(arr);
+};
+
+/**
+ * Reject all values that return a truthy value of `fn(val, i)`.
+ *
+ * Rejecting using a callback:
+ *
+ *    users.reject(function(user){
+ *      return user.age < 20
+ *    })
+ *
+ * Rejecting with a property:
+ *
+ *    items.reject('complete')
+ *
+ * Rejecting values via `==`:
+ *
+ *    data.reject(null)
+ *    users.reject(tobi)
+ *
+ * @param {Function|String|Mixed} fn
+ * @return {Enumerable}
+ * @api public
+ */
+
+proto.reject = function(fn){
+  var val;
+  var arr = [];
+  var vals = this.__iterate__();
+  var len = vals.length();
+
+  if ('string' == typeof fn) fn = toFunction(fn);
+
+  if (fn) {
+    for (var i = 0; i < len; ++i) {
+      val = vals.get(i);
+      if (!fn(val, i)) arr.push(val);
+    }
+  } else {
+    for (var i = 0; i < len; ++i) {
+      val = vals.get(i);
+      if (val != fn) arr.push(val);
+    }
+  }
+
+  return new Enumerable(arr);
+};
+
+/**
+ * Reject `null` and `undefined`.
+ *
+ *    [1, null, 5, undefined].compact()
+ *    // => [1,5]
+ *
+ * @return {Enumerable}
+ * @api public
+ */
+
+
+proto.compact = function(){
+  return this.reject(null);
+};
+
+/**
+ * Return the first value when `fn(val, i)` is truthy,
+ * otherwise return `undefined`.
+ *
+ *    users.find(function(user){
+ *      return user.role == 'admin'
+ *    })
+ *
+ * With a property string:
+ *
+ *    users.find('age > 20')
+ *
+ * @param {Function|String} fn
+ * @return {Mixed}
+ * @api public
+ */
+
+proto.find = function(fn){
+  fn = toFunction(fn);
+  var val;
+  var vals = this.__iterate__();
+  var len = vals.length();
+  for (var i = 0; i < len; ++i) {
+    val = vals.get(i);
+    if (fn(val, i)) return val;
+  }
+};
+
+/**
+ * Return the last value when `fn(val, i)` is truthy,
+ * otherwise return `undefined`.
+ *
+ *    users.findLast(function(user){
+ *      return user.role == 'admin'
+ *    })
+ *
+ * @param {Function} fn
+ * @return {Mixed}
+ * @api public
+ */
+
+proto.findLast = function(fn){
+  fn = toFunction(fn);
+  var val;
+  var vals = this.__iterate__();
+  var len = vals.length();
+  for (var i = len - 1; i > -1; --i) {
+    val = vals.get(i);
+    if (fn(val, i)) return val;
+  }
+};
+
+/**
+ * Assert that all invocations of `fn(val, i)` are truthy.
+ *
+ * For example ensuring that all pets are ferrets:
+ *
+ *    pets.all(function(pet){
+ *      return pet.species == 'ferret'
+ *    })
+ *
+ *    users.all('admin')
+ *
+ * @param {Function|String} fn
+ * @return {Boolean}
+ * @api public
+ */
+
+proto.all =
+proto.every = function(fn){
+  fn = toFunction(fn);
+  var val;
+  var vals = this.__iterate__();
+  var len = vals.length();
+  for (var i = 0; i < len; ++i) {
+    val = vals.get(i);
+    if (!fn(val, i)) return false;
+  }
+  return true;
+};
+
+/**
+ * Assert that none of the invocations of `fn(val, i)` are truthy.
+ *
+ * For example ensuring that no pets are admins:
+ *
+ *    pets.none(function(p){ return p.admin })
+ *    pets.none('admin')
+ *
+ * @param {Function|String} fn
+ * @return {Boolean}
+ * @api public
+ */
+
+proto.none = function(fn){
+  fn = toFunction(fn);
+  var val;
+  var vals = this.__iterate__();
+  var len = vals.length();
+  for (var i = 0; i < len; ++i) {
+    val = vals.get(i);
+    if (fn(val, i)) return false;
+  }
+  return true;
+};
+
+/**
+ * Assert that at least one invocation of `fn(val, i)` is truthy.
+ *
+ * For example checking to see if any pets are ferrets:
+ *
+ *    pets.any(function(pet){
+ *      return pet.species == 'ferret'
+ *    })
+ *
+ * @param {Function} fn
+ * @return {Boolean}
+ * @api public
+ */
+
+proto.any = function(fn){
+  fn = toFunction(fn);
+  var val;
+  var vals = this.__iterate__();
+  var len = vals.length();
+  for (var i = 0; i < len; ++i) {
+    val = vals.get(i);
+    if (fn(val, i)) return true;
+  }
+  return false;
+};
+
+/**
+ * Count the number of times `fn(val, i)` returns true.
+ *
+ *    var n = pets.count(function(pet){
+ *      return pet.species == 'ferret'
+ *    })
+ *
+ * @param {Function} fn
+ * @return {Number}
+ * @api public
+ */
+
+proto.count = function(fn){
+  var val;
+  var vals = this.__iterate__();
+  var len = vals.length();
+  var n = 0;
+  for (var i = 0; i < len; ++i) {
+    val = vals.get(i);
+    if (fn(val, i)) ++n;
+  }
+  return n;
+};
+
+/**
+ * Determine the indexof `obj` or return `-1`.
+ *
+ * @param {Mixed} obj
+ * @return {Number}
+ * @api public
+ */
+
+proto.indexOf = function(obj){
+  var val;
+  var vals = this.__iterate__();
+  var len = vals.length();
+  for (var i = 0; i < len; ++i) {
+    val = vals.get(i);
+    if (val === obj) return i;
+  }
+  return -1;
+};
+
+/**
+ * Check if `obj` is present in this enumerable.
+ *
+ * @param {Mixed} obj
+ * @return {Boolean}
+ * @api public
+ */
+
+proto.has = function(obj){
+  return !! ~this.indexOf(obj);
+};
+
+/**
+ * Reduce with `fn(accumulator, val, i)` using
+ * optional `init` value defaulting to the first
+ * enumerable value.
+ *
+ * @param {Function} fn
+ * @param {Mixed} [val]
+ * @return {Mixed}
+ * @api public
+ */
+
+proto.reduce = function(fn, init){
+  var val;
+  var i = 0;
+  var vals = this.__iterate__();
+  var len = vals.length();
+
+  val = null == init
+    ? vals.get(i++)
+    : init;
+
+  for (; i < len; ++i) {
+    val = fn(val, vals.get(i), i);
+  }
+
+  return val;
+};
+
+/**
+ * Determine the max value.
+ *
+ * With a callback function:
+ *
+ *    pets.max(function(pet){
+ *      return pet.age
+ *    })
+ *
+ * With property strings:
+ *
+ *    pets.max('age')
+ *
+ * With immediate values:
+ *
+ *    nums.max()
+ *
+ * @param {Function|String} fn
+ * @return {Number}
+ * @api public
+ */
+
+proto.max = function(fn){
+  var val;
+  var n = 0;
+  var max = -Infinity;
+  var vals = this.__iterate__();
+  var len = vals.length();
+
+  if (fn) {
+    fn = toFunction(fn);
+    for (var i = 0; i < len; ++i) {
+      n = fn(vals.get(i), i);
+      max = n > max ? n : max;
+    }
+  } else {
+    for (var i = 0; i < len; ++i) {
+      n = vals.get(i);
+      max = n > max ? n : max;
+    }
+  }
+
+  return max;
+};
+
+/**
+ * Determine the min value.
+ *
+ * With a callback function:
+ *
+ *    pets.min(function(pet){
+ *      return pet.age
+ *    })
+ *
+ * With property strings:
+ *
+ *    pets.min('age')
+ *
+ * With immediate values:
+ *
+ *    nums.min()
+ *
+ * @param {Function|String} fn
+ * @return {Number}
+ * @api public
+ */
+
+proto.min = function(fn){
+  var val;
+  var n = 0;
+  var min = Infinity;
+  var vals = this.__iterate__();
+  var len = vals.length();
+
+  if (fn) {
+    fn = toFunction(fn);
+    for (var i = 0; i < len; ++i) {
+      n = fn(vals.get(i), i);
+      min = n < min ? n : min;
+    }
+  } else {
+    for (var i = 0; i < len; ++i) {
+      n = vals.get(i);
+      min = n < min ? n : min;
+    }
+  }
+
+  return min;
+};
+
+/**
+ * Determine the sum.
+ *
+ * With a callback function:
+ *
+ *    pets.sum(function(pet){
+ *      return pet.age
+ *    })
+ *
+ * With property strings:
+ *
+ *    pets.sum('age')
+ *
+ * With immediate values:
+ *
+ *    nums.sum()
+ *
+ * @param {Function|String} fn
+ * @return {Number}
+ * @api public
+ */
+
+proto.sum = function(fn){
+  var ret;
+  var n = 0;
+  var vals = this.__iterate__();
+  var len = vals.length();
+
+  if (fn) {
+    fn = toFunction(fn);
+    for (var i = 0; i < len; ++i) {
+      n += fn(vals.get(i), i);
+    }
+  } else {
+    for (var i = 0; i < len; ++i) {
+      n += vals.get(i);
+    }
+  }
+
+  return n;
+};
+
+/**
+ * Determine the average value.
+ *
+ * With a callback function:
+ *
+ *    pets.avg(function(pet){
+ *      return pet.age
+ *    })
+ *
+ * With property strings:
+ *
+ *    pets.avg('age')
+ *
+ * With immediate values:
+ *
+ *    nums.avg()
+ *
+ * @param {Function|String} fn
+ * @return {Number}
+ * @api public
+ */
+
+proto.avg =
+proto.mean = function(fn){
+  var ret;
+  var n = 0;
+  var vals = this.__iterate__();
+  var len = vals.length();
+
+  if (fn) {
+    fn = toFunction(fn);
+    for (var i = 0; i < len; ++i) {
+      n += fn(vals.get(i), i);
+    }
+  } else {
+    for (var i = 0; i < len; ++i) {
+      n += vals.get(i);
+    }
+  }
+
+  return n / len;
+};
+
+/**
+ * Return the first value, or first `n` values.
+ *
+ * @param {Number|Function} [n]
+ * @return {Array|Mixed}
+ * @api public
+ */
+
+proto.first = function(n){
+  if ('function' == typeof n) return this.find(n);
+  var vals = this.__iterate__();
+
+  if (n) {
+    var len = Math.min(n, vals.length());
+    var arr = new Array(len);
+    for (var i = 0; i < len; ++i) {
+      arr[i] = vals.get(i);
+    }
+    return arr;
+  }
+
+  return vals.get(0);
+};
+
+/**
+ * Return the last value, or last `n` values.
+ *
+ * @param {Number|Function} [n]
+ * @return {Array|Mixed}
+ * @api public
+ */
+
+proto.last = function(n){
+  if ('function' == typeof n) return this.findLast(n);
+  var vals = this.__iterate__();
+  var len = vals.length();
+
+  if (n) {
+    var i = Math.max(0, len - n);
+    var arr = [];
+    for (; i < len; ++i) {
+      arr.push(vals.get(i));
+    }
+    return arr;
+  }
+
+  return vals.get(len - 1);
+};
+
+/**
+ * Return values in groups of `n`.
+ *
+ * @param {Number} n
+ * @return {Enumerable}
+ * @api public
+ */
+
+proto.inGroupsOf = function(n){
+  var arr = [];
+  var group = [];
+  var vals = this.__iterate__();
+  var len = vals.length();
+
+  for (var i = 0; i < len; ++i) {
+    group.push(vals.get(i));
+    if ((i + 1) % n == 0) {
+      arr.push(group);
+      group = [];
+    }
+  }
+
+  if (group.length) arr.push(group);
+
+  return new Enumerable(arr);
+};
+
+/**
+ * Return the value at the given index.
+ *
+ * @param {Number} i
+ * @return {Mixed}
+ * @api public
+ */
+
+proto.at = function(i){
+  return this.__iterate__().get(i);
+};
+
+/**
+ * Return a regular `Array`.
+ *
+ * @return {Array}
+ * @api public
+ */
+
+proto.toJSON =
+proto.array = function(){
+  var arr = [];
+  var vals = this.__iterate__();
+  var len = vals.length();
+  for (var i = 0; i < len; ++i) {
+    arr.push(vals.get(i));
+  }
+  return arr;
+};
+
+/**
+ * Return the enumerable value.
+ *
+ * @return {Mixed}
+ * @api public
+ */
+
+proto.value = function(){
+  return this.obj;
+};
+
+/**
+ * Mixin enumerable.
+ */
+
+mixin(Enumerable.prototype);
+
+}, {"to-function":12,"isarray":13}],
+12: [function(require, module, exports) {
+/**
+ * Module Dependencies
+ */
+try {
+  var expr = require('props');
+} catch(e) {
+  var expr = require('component-props');
+}
+
+/**
+ * Expose `toFunction()`.
+ */
+
+module.exports = toFunction;
+
+/**
+ * Convert `obj` to a `Function`.
+ *
+ * @param {Mixed} obj
+ * @return {Function}
+ * @api private
+ */
+
+function toFunction(obj) {
+  switch ({}.toString.call(obj)) {
+    case '[object Object]':
+      return objectToFunction(obj);
+    case '[object Function]':
+      return obj;
+    case '[object String]':
+      return stringToFunction(obj);
+    case '[object RegExp]':
+      return regexpToFunction(obj);
+    default:
+      return defaultToFunction(obj);
+  }
+}
+
+/**
+ * Default to strict equality.
+ *
+ * @param {Mixed} val
+ * @return {Function}
+ * @api private
+ */
+
+function defaultToFunction(val) {
+  return function(obj){
+    return val === obj;
+  }
+}
+
+/**
+ * Convert `re` to a function.
+ *
+ * @param {RegExp} re
+ * @return {Function}
+ * @api private
+ */
+
+function regexpToFunction(re) {
+  return function(obj){
+    return re.test(obj);
+  }
+}
+
+/**
+ * Convert property `str` to a function.
+ *
+ * @param {String} str
+ * @return {Function}
+ * @api private
+ */
+
+function stringToFunction(str) {
+  // immediate such as "> 20"
+  if (/^ *\W+/.test(str)) return new Function('_', 'return _ ' + str);
+
+  // properties such as "name.first" or "age > 18" or "age > 18 && age < 36"
+  return new Function('_', 'return ' + get(str));
+}
+
+/**
+ * Convert `object` to a function.
+ *
+ * @param {Object} object
+ * @return {Function}
+ * @api private
+ */
+
+function objectToFunction(obj) {
+  var match = {}
+  for (var key in obj) {
+    match[key] = typeof obj[key] === 'string'
+      ? defaultToFunction(obj[key])
+      : toFunction(obj[key])
+  }
+  return function(val){
+    if (typeof val !== 'object') return false;
+    for (var key in match) {
+      if (!(key in val)) return false;
+      if (!match[key](val[key])) return false;
+    }
+    return true;
+  }
+}
+
+/**
+ * Built the getter function. Supports getter style functions
+ *
+ * @param {String} str
+ * @return {String}
+ * @api private
+ */
+
+function get(str) {
+  var props = expr(str);
+  if (!props.length) return '_.' + str;
+
+  var val;
+  for(var i = 0, prop; prop = props[i]; i++) {
+    val = '_.' + prop;
+    val = "('function' == typeof " + val + " ? " + val + "() : " + val + ")";
+    str = str.replace(new RegExp(prop, 'g'), val);
+  }
+
+  return str;
+}
+
+}, {"props":14,"component-props":14}],
+14: [function(require, module, exports) {
+/**
+ * Global Names
+ */
+
+var globals = /\b(this|Array|Date|Object|Math|JSON)\b/g;
+
+/**
+ * Return immediate identifiers parsed from `str`.
+ *
+ * @param {String} str
+ * @param {String|Function} map function or prefix
+ * @return {Array}
+ * @api public
+ */
+
+module.exports = function(str, fn){
+  var p = unique(props(str));
+  if (fn && 'string' == typeof fn) fn = prefixed(fn);
+  if (fn) return map(str, p, fn);
+  return p;
+};
+
+/**
+ * Return immediate identifiers in `str`.
+ *
+ * @param {String} str
+ * @return {Array}
+ * @api private
+ */
+
+function props(str) {
+  return str
+    .replace(/\.\w+|\w+ *\(|"[^"]*"|'[^']*'|\/([^/]+)\//g, '')
+    .replace(globals, '')
+    .match(/[$a-zA-Z_]\w*/g)
+    || [];
+}
+
+/**
+ * Return `str` with `props` mapped with `fn`.
+ *
+ * @param {String} str
+ * @param {Array} props
+ * @param {Function} fn
+ * @return {String}
+ * @api private
+ */
+
+function map(str, props, fn) {
+  var re = /\.\w+|\w+ *\(|"[^"]*"|'[^']*'|\/([^/]+)\/|[a-zA-Z_]\w*/g;
+  return str.replace(re, function(_){
+    if ('(' == _[_.length - 1]) return fn(_);
+    if (!~props.indexOf(_)) return _;
+    return fn(_);
+  });
+}
+
+/**
+ * Return unique array.
+ *
+ * @param {Array} arr
+ * @return {Array}
+ * @api private
+ */
+
+function unique(arr) {
+  var ret = [];
+
+  for (var i = 0; i < arr.length; i++) {
+    if (~ret.indexOf(arr[i])) continue;
+    ret.push(arr[i]);
+  }
+
+  return ret;
+}
+
+/**
+ * Map with prefix `str`.
+ */
+
+function prefixed(str) {
+  return function(_){
+    return str + _;
+  };
+}
+
+}, {}],
+13: [function(require, module, exports) {
+module.exports = Array.isArray || function (arr) {
+  return Object.prototype.toString.call(arr) == '[object Array]';
+};
+
 }, {}]}, {}, {"1":""})
