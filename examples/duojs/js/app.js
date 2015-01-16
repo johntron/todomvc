@@ -4976,7 +4976,7 @@ module.exports = (function (global) {
 
 }, {"./en_US/messages.json":34,"SlexAxton/Jed:jed.js":35}],
 34: [function(require, module, exports) {
-module.exports = {"{count} item left":["{count} items left","",""],"Clear completed ({count})":[null,""],"":{"project-id-version":"PACKAGE VERSION","report-msgid-bugs-to":"","pot-creation-date":"2015-01-15 20:12-0600","po-revision-date":"YEAR-MO-DA HO:MI+ZONE","last-translator":"FULL NAME <EMAIL@ADDRESS>","language-team":"LANGUAGE <LL@li.org>","language":"","mime-version":"1.0","content-type":"text/plain; charset=UTF-8","content-transfer-encoding":"8bit","plural-forms":"nplurals=2; plural=(n != 1);"}};
+module.exports = {"{count} item left":["{count} items left","",""],"Clear completed ({count})":[null,""],"":{"project-id-version":"PACKAGE VERSION","report-msgid-bugs-to":"","pot-creation-date":"2015-01-15 22:10-0600","po-revision-date":"YEAR-MO-DA HO:MI+ZONE","last-translator":"FULL NAME <EMAIL@ADDRESS>","language-team":"LANGUAGE <LL@li.org>","language":"","mime-version":"1.0","content-type":"text/plain; charset=UTF-8","content-transfer-encoding":"8bit","plural-forms":"nplurals=2; plural=(n!=1);"}};
 }, {}],
 35: [function(require, module, exports) {
 /**

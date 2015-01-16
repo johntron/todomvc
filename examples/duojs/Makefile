@@ -6,6 +6,9 @@ node_modules:
 
 extract:
 	find */* -name "*.js" -not -path "node_modules/*" -not -path "components/*" -not -path "js/*" | xargs xgettext --from-code=UTF-8 -p ./i18n
+	sed -i '' s/CHARSET/UTF-8/g ./i18n/messages.po
+	sed -i '' s/nplurals=INTEGER/nplurals=2/g ./i18n/messages.po
+	sed -i '' s/plural=EXPRESSION/plural=\(n!=1\)/g ./i18n/messages.po
 
 po2json:
 	mkdir -p ./i18n/en_US
