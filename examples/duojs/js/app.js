@@ -856,15 +856,20 @@ var domify = require('component/domify'),
 function View(model) {
     this.model = model;
     this.$el = $template.cloneNode(true); // Clone (deep) to avoid updating original $template
-	this.filter = 'all'; // 'active' and 'completed'
+	this.filter = ''; // '' (all), 'active', or 'completed'
 }
 
-View.prototype.render = function(models) {
-	models = models || this.model;
-		
+View.prototype.render = function() {
 	var $list = this.$el.querySelector('#todo-list'),
 		$filters = this.$el.querySelectorAll('#filters a'),
-		hash = window.location.hash;
+		models,
+		hash = '#/' + this.filter;
+
+	if (!this.filter) {
+		models = this.model;
+	} else {
+		models = this.model[this.filter]();
+	}
 
 	// Remove any existing todos
 	while($list.firstChild) {
@@ -895,36 +900,37 @@ View.prototype.render = function(models) {
 };
 
 View.prototype.render_all = function() {
-	this.filter = 'all';
+	this.filter = '';
 	this.render();
 };
 
 View.prototype.render_active = function() {
-	var active = this.model.select(function (todo) {
-			return !todo.completed();
-		});
-
 	this.filter = 'active';
-	this.render(active);
+	this.render();
 };
 
 View.prototype.render_completed = function() {
-	var completed = this.model.select(function (todo) {
-		return todo.completed();
-	});
-
 	this.filter = 'completed';
-	this.render(completed);
+	this.render();
 };
 
 View.prototype.bind = function() {
     var $new_todo = this.$el.querySelector('#new-todo'),
 		$mark_all = this.$el.querySelector('#toggle-all'),
-		$clear = this.$el.querySelector('#clear-completed');
+		$clear = this.$el.querySelector('#clear-completed'),
+		save_model = this.model.save.bind(this.model);
 
     event.bind($new_todo, 'keyup', this.add_handler.bind(this));
 	event.bind($mark_all, 'change', this.toggle_all.bind(this));
 	event.bind($clear, 'click', this.clear_completed.bind(this));
+
+	this.model.on('add', this.render.bind(this));
+	this.model.on('change', this.render.bind(this));
+	this.model.on('remove', this.render.bind(this));
+
+	this.model.on('add', save_model);
+	this.model.on('change', save_model);
+	this.model.on('remove', save_model);
 };
 
 View.prototype.add_view = function (model) {
@@ -933,34 +939,7 @@ View.prototype.add_view = function (model) {
 
 	view.render();
 	view.bind();
-	view.on('destroy', this.destroy_view.bind(this));
 	$list.appendChild(view.$el);
-	
-	model.on('change completed', this.refresh_footer.bind(this));
-	model.on('change completed', this.model.save.bind(this.model));
-	model.on('destroy', this.destroy_view.bind(this, view));
-};
-
-View.prototype.destroy_view = function (view, model) {
-	var $list = this.$el.querySelector('#todo-list');
-
-	if ($list.contains(view.$el)) {
-		// view.$el won't be in DOM if user is viewing "Completed"
-		$list.removeChild(view.$el);
-	}
-
-	if (!model) {
-		return; // Short-circuit
-	}
-
-	this.model.remove(model);
-	this.model.save();
-
-	if (!this.model.length()) {
-		this.hide_chrome();
-	} else {
-		this.refresh_footer();
-	}
 };
 
 View.prototype.add_handler = function(e) {
@@ -982,12 +961,6 @@ View.prototype.add_handler = function(e) {
 	}
 
     this.model.add(todo);
-	this.model.save();
-	if (this.filter !== 'completed') {
-		this.add_view(todo);
-		this.show_chrome();
-	}
-	this.refresh_footer();
 	$input.value = '';
 };
 
@@ -997,7 +970,6 @@ View.prototype.toggle_all = function () {
 	this.model.each(function (todo) {
 		todo.completed(completed);
 	});
-	this.model.save();
 };
 
 View.prototype.show_chrome = function () {
@@ -1041,12 +1013,6 @@ View.prototype.refresh_complete = function () {
 
 View.prototype.clear_completed = function () {
 	this.model.destroy_completed();
-	this.model.save();
-	this.refresh_footer();
-
-	if (!this.model.length()) {
-		this.hide_chrome();
-	}
 };
 
 module.exports = {
@@ -1437,19 +1403,15 @@ View.prototype.render = function () {
 View.prototype.bind = function () {
 	delegate.bind(this.$el, '.toggle', 'change', this.toggle_completed.bind(this));
 	delegate.bind(this.$el, '.destroy', 'click', this.destroy.bind(this));
-
-	this.model.on('change completed', this.render.bind(this));
 };
 
 View.prototype.toggle_completed = function () {
 	var completed = !this.model.completed();
-
 	this.model.completed(completed);
-	this.render();
 };
 
 View.prototype.destroy = function () {
-	this.emit('destroy', this, this.model);
+	this.model.emit('destroy', this.model);
 };
 
 module.exports = {
@@ -6057,13 +6019,21 @@ return parser;
 /*jslint browser:true */
 
 var Enumerable = require('component/enumerable'),
+	Emitter = require('component/emitter'),
 	Model = require('/todo').Model;
 
 function Collection(data) {
-	this.items = data || [];
+	data = data || [];
+	
+	this.items = [];
+
+	data.forEach(function (todo) {
+		this.add(todo, true);
+	}, this);
 }
 
 Enumerable(Collection.prototype);
+Emitter(Collection.prototype);
 
 Collection.prototype.__iterate__ = function () {
 	var self = this;
@@ -6102,8 +6072,15 @@ Collection.prototype.num_complete = function () {
 /**
  * @param {Model} item
  */
-Collection.prototype.add = function (item) {
+Collection.prototype.add = function (item, silent) {
 	this.items.push(item);
+
+	item.on('change', this.emit.bind(this, 'change', this));
+	item.on('destroy', this.remove.bind(this, item));
+
+	if (!silent) {
+		this.emit('add', item, this);
+	}
 };
 
 /**
@@ -6112,15 +6089,25 @@ Collection.prototype.add = function (item) {
 Collection.prototype.remove = function (item) {
 	var index = this.indexOf(item);
 	this.items.splice(index, 1);
+
+	this.emit('remove', item, this);
+};
+
+Collection.prototype.active = function () {
+	return this.select(function (todo) {
+		return !todo.completed();
+	});
+};
+Collection.prototype.completed = function () {
+	return this.select(function (todo) {
+		return todo.completed();
+	});
 };
 
 Collection.prototype.destroy_completed = function () {
-	var self = this;
-
-	this.items = this.items.filter(function (todo, i) {
-		if (!todo) {console.log(self.items, i);}
+	this.items.slice(0).forEach(function (todo, i) {
 		if (!todo.completed()) {
-			return true; // Short-circuit
+			return; // Short-circuit
 		}
 		
 		if (todo.isNew()) {
@@ -6128,8 +6115,6 @@ Collection.prototype.destroy_completed = function () {
 		} else {
 			todo.destroy();
 		}
-
-		return false;
 	});
 };
 
@@ -6169,4 +6154,4 @@ Collection.all = function (done) {
 
 module.exports = Collection;
 
-}, {"component/enumerable":31,"/todo":9}]}, {}, {"1":""})
+}, {"component/enumerable":31,"component/emitter":15,"/todo":9}]}, {}, {"1":""})

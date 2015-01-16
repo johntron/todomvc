@@ -31,19 +31,15 @@ View.prototype.render = function () {
 View.prototype.bind = function () {
 	delegate.bind(this.$el, '.toggle', 'change', this.toggle_completed.bind(this));
 	delegate.bind(this.$el, '.destroy', 'click', this.destroy.bind(this));
-
-	this.model.on('change completed', this.render.bind(this));
 };
 
 View.prototype.toggle_completed = function () {
 	var completed = !this.model.completed();
-
 	this.model.completed(completed);
-	this.render();
 };
 
 View.prototype.destroy = function () {
-	this.emit('destroy', this, this.model);
+	this.model.emit('destroy', this.model);
 };
 
 module.exports = {

@@ -1,13 +1,21 @@
 /*jslint browser:true */
 
 var Enumerable = require('component/enumerable'),
+	Emitter = require('component/emitter'),
 	Model = require('/todo').Model;
 
 function Collection(data) {
-	this.items = data || [];
+	data = data || [];
+	
+	this.items = [];
+
+	data.forEach(function (todo) {
+		this.add(todo, true);
+	}, this);
 }
 
 Enumerable(Collection.prototype);
+Emitter(Collection.prototype);
 
 Collection.prototype.__iterate__ = function () {
 	var self = this;
@@ -46,8 +54,15 @@ Collection.prototype.num_complete = function () {
 /**
  * @param {Model} item
  */
-Collection.prototype.add = function (item) {
+Collection.prototype.add = function (item, silent) {
 	this.items.push(item);
+
+	item.on('change', this.emit.bind(this, 'change', this));
+	item.on('destroy', this.remove.bind(this, item));
+
+	if (!silent) {
+		this.emit('add', item, this);
+	}
 };
 
 /**
@@ -56,15 +71,25 @@ Collection.prototype.add = function (item) {
 Collection.prototype.remove = function (item) {
 	var index = this.indexOf(item);
 	this.items.splice(index, 1);
+
+	this.emit('remove', item, this);
+};
+
+Collection.prototype.active = function () {
+	return this.select(function (todo) {
+		return !todo.completed();
+	});
+};
+Collection.prototype.completed = function () {
+	return this.select(function (todo) {
+		return todo.completed();
+	});
 };
 
 Collection.prototype.destroy_completed = function () {
-	var self = this;
-
-	this.items = this.items.filter(function (todo, i) {
-		if (!todo) {console.log(self.items, i);}
+	this.items.slice(0).forEach(function (todo, i) {
 		if (!todo.completed()) {
-			return true; // Short-circuit
+			return; // Short-circuit
 		}
 		
 		if (todo.isNew()) {
@@ -72,8 +97,6 @@ Collection.prototype.destroy_completed = function () {
 		} else {
 			todo.destroy();
 		}
-
-		return false;
 	});
 };
 
