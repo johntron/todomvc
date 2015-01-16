@@ -32,10 +32,12 @@ View.prototype.render = function() {
 
 View.prototype.bind = function() {
     var $new_todo = this.$el.querySelector('#new-todo'),
-		$mark_all = this.$el.querySelector('#toggle-all');
+		$mark_all = this.$el.querySelector('#toggle-all'),
+		$clear = this.$el.querySelector('#clear-completed');
 
     event.bind($new_todo, 'keyup', this.add_handler.bind(this));
 	event.bind($mark_all, 'change', this.toggle_all.bind(this));
+	event.bind($clear, 'click', this.clear_completed.bind(this));
 };
 
 View.prototype.add_view = function (model) {
@@ -48,6 +50,7 @@ View.prototype.add_view = function (model) {
 	$list.appendChild(view.$el);
 	
 	model.on('change completed', this.refresh_footer.bind(this));
+	model.on('destroy', this.destroy_view.bind(this, view));
 
 	// If we just added a todo, the list cannot be empty
 	this.show_chrome();
@@ -57,6 +60,11 @@ View.prototype.destroy_view = function (view, model) {
 	var $list = this.$el.querySelector('#todo-list');
 
 	$list.removeChild(view.$el);
+
+	if (!model) {
+		return; // Short-circuit
+	}
+
 	this.model.remove(model);
 
 	if (!this.model.length()) {
@@ -114,14 +122,36 @@ View.prototype.hide_chrome = function () {
 };
 
 View.prototype.refresh_footer = function () {
-	var $remaining = this.$el.querySelector('#todo-count'),
-		incomplete = this.model.num_incomplete(),
-		remaining = _.ngettext('{count} item left', '{count} items left', incomplete);
-
-	remaining = interpolate(remaining, {count: incomplete});
-	$remaining.textContent = remaining;
+	this.refresh_incomplete();
+	this.refresh_complete();
 };
 
+View.prototype.refresh_incomplete = function () {
+	var $incomplete = this.$el.querySelector('#todo-count'),
+		count = this.model.num_incomplete(),
+		remaining = _.ngettext('{count} item left', '{count} items left', count);
+
+	remaining = interpolate(remaining, {count: count});
+	$incomplete.textContent = remaining;
+};
+
+View.prototype.refresh_complete = function () {
+	var $clear = this.$el.querySelector('#clear-completed'),
+		count = this.model.num_complete(),
+		clear = _.gettext('Clear completed ({count})');
+
+	clear = interpolate(clear, {count: count});
+	$clear.textContent = clear;
+};
+
+View.prototype.clear_completed = function () {
+	this.model.destroy_completed();
+	this.refresh_footer();
+
+	if (!this.model.length()) {
+		this.hide_chrome();
+	}
+};
 
 module.exports = {
 	View: View,

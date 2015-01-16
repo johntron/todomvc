@@ -878,10 +878,12 @@ View.prototype.render = function() {
 
 View.prototype.bind = function() {
     var $new_todo = this.$el.querySelector('#new-todo'),
-		$mark_all = this.$el.querySelector('#toggle-all');
+		$mark_all = this.$el.querySelector('#toggle-all'),
+		$clear = this.$el.querySelector('#clear-completed');
 
     event.bind($new_todo, 'keyup', this.add_handler.bind(this));
 	event.bind($mark_all, 'change', this.toggle_all.bind(this));
+	event.bind($clear, 'click', this.clear_completed.bind(this));
 };
 
 View.prototype.add_view = function (model) {
@@ -894,6 +896,7 @@ View.prototype.add_view = function (model) {
 	$list.appendChild(view.$el);
 	
 	model.on('change completed', this.refresh_footer.bind(this));
+	model.on('destroy', this.destroy_view.bind(this, view));
 
 	// If we just added a todo, the list cannot be empty
 	this.show_chrome();
@@ -903,6 +906,11 @@ View.prototype.destroy_view = function (view, model) {
 	var $list = this.$el.querySelector('#todo-list');
 
 	$list.removeChild(view.$el);
+
+	if (!model) {
+		return; // Short-circuit
+	}
+
 	this.model.remove(model);
 
 	if (!this.model.length()) {
@@ -960,14 +968,36 @@ View.prototype.hide_chrome = function () {
 };
 
 View.prototype.refresh_footer = function () {
-	var $remaining = this.$el.querySelector('#todo-count'),
-		incomplete = this.model.num_incomplete(),
-		remaining = _.ngettext('{count} item left', '{count} items left', incomplete);
-
-	remaining = interpolate(remaining, {count: incomplete});
-	$remaining.textContent = remaining;
+	this.refresh_incomplete();
+	this.refresh_complete();
 };
 
+View.prototype.refresh_incomplete = function () {
+	var $incomplete = this.$el.querySelector('#todo-count'),
+		count = this.model.num_incomplete(),
+		remaining = _.ngettext('{count} item left', '{count} items left', count);
+
+	remaining = interpolate(remaining, {count: count});
+	$incomplete.textContent = remaining;
+};
+
+View.prototype.refresh_complete = function () {
+	var $clear = this.$el.querySelector('#clear-completed'),
+		count = this.model.num_complete(),
+		clear = _.gettext('Clear completed ({count})');
+
+	clear = interpolate(clear, {count: count});
+	$clear.textContent = clear;
+};
+
+View.prototype.clear_completed = function () {
+	this.model.destroy_completed();
+	this.refresh_footer();
+
+	if (!this.model.length()) {
+		this.hide_chrome();
+	}
+};
 
 module.exports = {
 	View: View,
@@ -4935,6 +4965,10 @@ var en_US = require('./en_US/messages.json'),
 module.exports = (function (global) {
 	return global._ || new Jed({
 		locale_data: {
+			"": {
+				"lang" : "en",
+        		"plural_forms" : "nplurals=2; plural=(n != 1);"
+      		},
 			"messages": en_US
 		}
 	});
@@ -4942,7 +4976,7 @@ module.exports = (function (global) {
 
 }, {"./en_US/messages.json":34,"SlexAxton/Jed:jed.js":35}],
 34: [function(require, module, exports) {
-module.exports = {"{count} item left":[null,""],"":{"project-id-version":"PACKAGE VERSION","report-msgid-bugs-to":"","pot-creation-date":"2015-01-15 16:35-0600","po-revision-date":"YEAR-MO-DA HO:MI+ZONE","last-translator":"FULL NAME <EMAIL@ADDRESS>","language-team":"LANGUAGE <LL@li.org>","language":"","mime-version":"1.0","content-type":"text/plain; charset=CHARSET","content-transfer-encoding":"8bit"}};
+module.exports = {"{count} item left":["{count} items left","",""],"Clear completed ({count})":[null,""],"":{"project-id-version":"PACKAGE VERSION","report-msgid-bugs-to":"","pot-creation-date":"2015-01-15 20:12-0600","po-revision-date":"YEAR-MO-DA HO:MI+ZONE","last-translator":"FULL NAME <EMAIL@ADDRESS>","language-team":"LANGUAGE <LL@li.org>","language":"","mime-version":"1.0","content-type":"text/plain; charset=UTF-8","content-transfer-encoding":"8bit","plural-forms":"nplurals=2; plural=(n != 1);"}};
 }, {}],
 35: [function(require, module, exports) {
 /**
@@ -6009,6 +6043,12 @@ Collection.prototype.num_incomplete = function () {
 	});
 };
 
+Collection.prototype.num_complete = function () {
+	return this.count(function (todo) {
+		return todo.completed();
+	});
+};
+
 /**
  * @param {Model} item
  */
@@ -6023,6 +6063,26 @@ Collection.prototype.remove = function (item) {
 	var index = this.indexOf(item);
 	this.items.splice(index, 1);
 };
+
+Collection.prototype.destroy_completed = function () {
+	var self = this;
+
+	this.items = this.items.filter(function (todo, i) {
+		if (!todo) {console.log(self.items, i);}
+		if (!todo.completed()) {
+			return true; // Short-circuit
+		}
+		
+		if (todo.isNew()) {
+			todo.emit('destroy');
+		} else {
+			todo.destroy();
+		}
+
+		return false;
+	});
+};
+
 
 /**
  * Request all items from localStorage

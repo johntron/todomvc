@@ -21,6 +21,10 @@ var en_US = require('./en_US/messages.json'),
 module.exports = (function (global) {
 	return global._ || new Jed({
 		locale_data: {
+			"": {
+				"lang" : "en",
+        		"plural_forms" : "nplurals=2; plural=(n != 1);"
+      		},
 			"messages": en_US
 		}
 	});

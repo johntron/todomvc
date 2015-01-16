@@ -37,6 +37,12 @@ Collection.prototype.num_incomplete = function () {
 	});
 };
 
+Collection.prototype.num_complete = function () {
+	return this.count(function (todo) {
+		return todo.completed();
+	});
+};
+
 /**
  * @param {Model} item
  */
@@ -51,6 +57,26 @@ Collection.prototype.remove = function (item) {
 	var index = this.indexOf(item);
 	this.items.splice(index, 1);
 };
+
+Collection.prototype.destroy_completed = function () {
+	var self = this;
+
+	this.items = this.items.filter(function (todo, i) {
+		if (!todo) {console.log(self.items, i);}
+		if (!todo.completed()) {
+			return true; // Short-circuit
+		}
+		
+		if (todo.isNew()) {
+			todo.emit('destroy');
+		} else {
+			todo.destroy();
+		}
+
+		return false;
+	});
+};
+
 
 /**
  * Request all items from localStorage
