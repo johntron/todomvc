@@ -6141,7 +6141,7 @@ Collection.prototype.save = function () {
 	this.items.forEach(function (todo) {
 		data[todo.order() - 1] = todo.toJSON();
 	});
-	window.localStorage.setItem('todos', JSON.stringify(data));
+	window.localStorage.setItem('todos-duojs', JSON.stringify(data));
 };
 
 /**
@@ -6151,7 +6151,7 @@ Collection.prototype.save = function () {
  * @param {Function} done callback like: function (err, collection) {}
  */
 Collection.all = function (done) {
-	var data = window.localStorage.getItem('todos'),
+	var data = window.localStorage.getItem('todos-duojs'),
 		todos = [];
 
 	if (!data) {
