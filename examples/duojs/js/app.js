@@ -87,33 +87,31 @@
 
 var Router = require('flatiron/director:build/director.js').Router,
     routes, router,
-	TodoList = require('./todo-list');
+    TodoList = require('./todo-list'),
+    list;
 
 require('/i18n'); // Make sure `_` translation method is available
 
+TodoList.Collection.all(function(err, todos) {
+    if (err) {
+        console.error(err);
+        return; // Short-circuit
+    }
+
+    var $footer = document.querySelector('footer');
+
+    list = new TodoList.View(todos);
+	list.bind();
+    document.body.insertBefore(list.$el, $footer);
+});
+
 routes = {
-    '/': {
-		on: function () {
-			TodoList.Collection.all(function (err, todos) {
-				if (err) {
-					console.error(err);
-					return; // Short-circuit
-				}
-
-				var list = new TodoList.View(todos),
-					$footer = document.querySelector('footer');
-
-				list.render();
-				document.body.insertBefore(list.$el, $footer);
-			});
-		}
-	},
-	'/active': {},
-	'/completed': {}
+    '/': function() { list.render_all(); },
+    '/active': function () { list.render_active(); },
+    '/completed': function () { list.render_completed(); }
 };
 
-router = Router(routes);
-router.init('/');
+Router(routes).init('/');
 
 }, {"flatiron/director:build/director.js":2,"./todo-list":3,"/i18n":4}],
 2: [function(require, module, exports) {
@@ -858,22 +856,65 @@ var domify = require('component/domify'),
 function View(model) {
     this.model = model;
     this.$el = $template.cloneNode(true); // Clone (deep) to avoid updating original $template
+	this.filter = 'all'; // 'active' and 'completed'
 }
 
-View.prototype.render = function() {
+View.prototype.render = function(models) {
+	models = models || this.model;
+		
+	var $list = this.$el.querySelector('#todo-list'),
+		$filters = this.$el.querySelectorAll('#filters a'),
+		hash = window.location.hash;
+
+	// Remove any existing todos
+	while($list.firstChild) {
+		$list.removeChild($list.firstChild);
+	}
+	
+	// Add a view for each model
+	models.forEach(this.add_view.bind(this));
+
 	// Hide/show #main and #footer
 	if (this.model.length()) {
 		this.show_chrome();
+		this.refresh_footer();
 	} else {
 		this.hide_chrome();
 	}
 
-	// Add a view for each model
-	this.model.forEach(this.add_view.bind(this));
+	// Bold the filter currently in use
+	[].forEach.call($filters, function ($filter) {
+		if ($filter.hash === hash) {
+			classes($filter).add('selected');
+		} else {
+			classes($filter).remove('selected');
+		}
+	});
+    
+	return this.$el;
+};
 
-	this.bind(); // If you ever need to unbind, remove this line, add an .unbind(), and call .bind()/.unbind() explicitly from outer conext
+View.prototype.render_all = function() {
+	this.filter = 'all';
+	this.render();
+};
 
-    return this.$el;
+View.prototype.render_active = function() {
+	var active = this.model.select(function (todo) {
+			return !todo.completed();
+		});
+
+	this.filter = 'active';
+	this.render(active);
+};
+
+View.prototype.render_completed = function() {
+	var completed = this.model.select(function (todo) {
+		return todo.completed();
+	});
+
+	this.filter = 'completed';
+	this.render(completed);
 };
 
 View.prototype.bind = function() {
@@ -896,22 +937,24 @@ View.prototype.add_view = function (model) {
 	$list.appendChild(view.$el);
 	
 	model.on('change completed', this.refresh_footer.bind(this));
+	model.on('change completed', this.model.save.bind(this.model));
 	model.on('destroy', this.destroy_view.bind(this, view));
-
-	// If we just added a todo, the list cannot be empty
-	this.show_chrome();
 };
 
 View.prototype.destroy_view = function (view, model) {
 	var $list = this.$el.querySelector('#todo-list');
 
-	$list.removeChild(view.$el);
+	if ($list.contains(view.$el)) {
+		// view.$el won't be in DOM if user is viewing "Completed"
+		$list.removeChild(view.$el);
+	}
 
 	if (!model) {
 		return; // Short-circuit
 	}
 
 	this.model.remove(model);
+	this.model.save();
 
 	if (!this.model.length()) {
 		this.hide_chrome();
@@ -939,7 +982,12 @@ View.prototype.add_handler = function(e) {
 	}
 
     this.model.add(todo);
-	this.add_view(todo);
+	this.model.save();
+	if (this.filter !== 'completed') {
+		this.add_view(todo);
+		this.show_chrome();
+	}
+	this.refresh_footer();
 	$input.value = '';
 };
 
@@ -949,6 +997,7 @@ View.prototype.toggle_all = function () {
 	this.model.each(function (todo) {
 		todo.completed(completed);
 	});
+	this.model.save();
 };
 
 View.prototype.show_chrome = function () {
@@ -957,8 +1006,6 @@ View.prototype.show_chrome = function () {
 	
 	classes($main).remove('hidden');
 	classes($footer).remove('hidden');
-
-	this.refresh_footer();
 };
 
 View.prototype.hide_chrome = function () {
@@ -994,6 +1041,7 @@ View.prototype.refresh_complete = function () {
 
 View.prototype.clear_completed = function () {
 	this.model.destroy_completed();
+	this.model.save();
 	this.refresh_footer();
 
 	if (!this.model.length()) {
@@ -6085,6 +6133,16 @@ Collection.prototype.destroy_completed = function () {
 	});
 };
 
+/**
+ * Save to localStorage
+ */
+Collection.prototype.save = function () {
+	var data = {}; // Using an [] would fill localStorage with null values for indices that have no Todo associated with them
+	this.items.forEach(function (todo) {
+		data[todo.order() - 1] = todo.toJSON();
+	});
+	window.localStorage.setItem('todos', JSON.stringify(data));
+};
 
 /**
  * Request all items from localStorage
@@ -6093,8 +6151,20 @@ Collection.prototype.destroy_completed = function () {
  * @param {Function} done callback like: function (err, collection) {}
  */
 Collection.all = function (done) {
-	var items = window.localStorage.getItem('todos');
-	done(null, new Collection(items));
+	var data = window.localStorage.getItem('todos'),
+		todos = [];
+
+	if (!data) {
+		return done(null, new Collection()); // Short-circuit
+	}
+
+	data = JSON.parse(data);
+
+	// Convert from indexed object to array
+	Object.keys(data).forEach(function (index) {
+		todos[index] = new Model(data[index]);
+	});
+	done(null, new Collection(todos));
 };
 
 module.exports = Collection;

@@ -77,6 +77,16 @@ Collection.prototype.destroy_completed = function () {
 	});
 };
 
+/**
+ * Save to localStorage
+ */
+Collection.prototype.save = function () {
+	var data = {}; // Using an [] would fill localStorage with null values for indices that have no Todo associated with them
+	this.items.forEach(function (todo) {
+		data[todo.order() - 1] = todo.toJSON();
+	});
+	window.localStorage.setItem('todos', JSON.stringify(data));
+};
 
 /**
  * Request all items from localStorage
@@ -85,8 +95,20 @@ Collection.prototype.destroy_completed = function () {
  * @param {Function} done callback like: function (err, collection) {}
  */
 Collection.all = function (done) {
-	var items = window.localStorage.getItem('todos');
-	done(null, new Collection(items));
+	var data = window.localStorage.getItem('todos'),
+		todos = [];
+
+	if (!data) {
+		return done(null, new Collection()); // Short-circuit
+	}
+
+	data = JSON.parse(data);
+
+	// Convert from indexed object to array
+	Object.keys(data).forEach(function (index) {
+		todos[index] = new Model(data[index]);
+	});
+	done(null, new Collection(todos));
 };
 
 module.exports = Collection;

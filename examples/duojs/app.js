@@ -2,30 +2,28 @@
 
 var Router = require('flatiron/director:build/director.js').Router,
     routes, router,
-	TodoList = require('./todo-list');
+    TodoList = require('./todo-list'),
+    list;
 
 require('/i18n'); // Make sure `_` translation method is available
 
+TodoList.Collection.all(function(err, todos) {
+    if (err) {
+        console.error(err);
+        return; // Short-circuit
+    }
+
+    var $footer = document.querySelector('footer');
+
+    list = new TodoList.View(todos);
+	list.bind();
+    document.body.insertBefore(list.$el, $footer);
+});
+
 routes = {
-    '/': {
-		on: function () {
-			TodoList.Collection.all(function (err, todos) {
-				if (err) {
-					console.error(err);
-					return; // Short-circuit
-				}
-
-				var list = new TodoList.View(todos),
-					$footer = document.querySelector('footer');
-
-				list.render();
-				document.body.insertBefore(list.$el, $footer);
-			});
-		}
-	},
-	'/active': {},
-	'/completed': {}
+    '/': function() { list.render_all(); },
+    '/active': function () { list.render_active(); },
+    '/completed': function () { list.render_completed(); }
 };
 
-router = Router(routes);
-router.init('/');
+Router(routes).init('/');
