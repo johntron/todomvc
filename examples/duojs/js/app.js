@@ -915,6 +915,8 @@ View.prototype.destroy_view = function (view, model) {
 
 	if (!this.model.length()) {
 		this.hide_chrome();
+	} else {
+		this.refresh_footer();
 	}
 };
 
