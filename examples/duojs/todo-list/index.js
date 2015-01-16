@@ -1,9 +1,13 @@
+/*jslint browser: true */
+
 var domify = require('component/domify'),
     $template = domify(require('./template.html')),
     classes = require('component/classes'),
     event = require('component/event'),
 	Todo = require('/todo'), // From build root (example/duojs)
-	ENTER_KEY = 13;
+	ENTER_KEY = 13,
+	interpolate = require('stephenmathieson/interpolate'),
+	_ = require('/i18n');
 
 function View(model) {
     this.model = model;
@@ -42,6 +46,8 @@ View.prototype.add_view = function (model) {
 	view.bind();
 	view.on('destroy', this.destroy_view.bind(this));
 	$list.appendChild(view.$el);
+	
+	model.on('change completed', this.refresh_footer.bind(this));
 
 	// If we just added a todo, the list cannot be empty
 	this.show_chrome();
@@ -95,6 +101,8 @@ View.prototype.show_chrome = function () {
 	
 	classes($main).remove('hidden');
 	classes($footer).remove('hidden');
+
+	this.refresh_footer();
 };
 
 View.prototype.hide_chrome = function () {
@@ -104,6 +112,16 @@ View.prototype.hide_chrome = function () {
 	classes($main).add('hidden');
 	classes($footer).add('hidden');
 };
+
+View.prototype.refresh_footer = function () {
+	var $remaining = this.$el.querySelector('#todo-count'),
+		incomplete = this.model.num_incomplete(),
+		remaining = _.ngettext('{count} item left', '{count} items left', incomplete);
+
+	remaining = interpolate(remaining, {count: incomplete});
+	$remaining.textContent = remaining;
+};
+
 
 module.exports = {
 	View: View,

@@ -31,6 +31,12 @@ Collection.prototype.next_order = function () {
 	return max + 1;
 };
 
+Collection.prototype.num_incomplete = function () {
+	return this.count(function (todo) {
+		return !todo.completed();
+	});
+};
+
 /**
  * @param {Model} item
  */
@@ -43,7 +49,7 @@ Collection.prototype.add = function (item) {
  */
 Collection.prototype.remove = function (item) {
 	var index = this.indexOf(item);
-	this.items.splice(index);
+	this.items.splice(index, 1);
 };
 
 /**

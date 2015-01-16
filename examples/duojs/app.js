@@ -4,6 +4,8 @@ var Router = require('flatiron/director:build/director.js').Router,
     routes, router,
 	TodoList = require('./todo-list');
 
+require('/i18n'); // Make sure `_` translation method is available
+
 routes = {
     '/': {
 		on: function () {
