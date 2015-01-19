@@ -28,9 +28,7 @@ View.prototype.render = function() {
 	}
 
 	// Remove any existing todos
-	while($list.firstChild) {
-		$list.removeChild($list.firstChild);
-	}
+	$list.textContent = '';
 	
 	// Add a view for each model
 	models.forEach(this.add_view.bind(this));
