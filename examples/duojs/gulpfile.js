@@ -6,7 +6,7 @@ var gulp = require('gulp'),
 	path = require('path'),
     paths = {
         scripts: ['app.js'],
-        styles: ['src/*.less', 'src/**.less', 'src/*.css', 'src/**/*.css'],
+        styles: ['todo-list/*.css'],
         images: ['src/*.png', 'src/**/*.png']
     },
 	less = require('gulp-less');
